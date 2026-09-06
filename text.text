@@ -1,0 +1,7 @@
+cd stonApp
+npx expo start
+
+cd stonApp-backend
+node server.js
+
+Tvlgalccllz 
