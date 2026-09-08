@@ -1,203 +1,299 @@
-const path = require('path');
-require('dotenv').config({ path: path.join(__dirname, 'atlas-credentials.env') });
-
 const express = require('express');
 const http = require('http');
-const { Server } = require('socket.io');
-const cors = require('cors');
 const mongoose = require('mongoose');
+const cors = require('cors');
 const bcrypt = require('bcryptjs');
+const { Server } = require('socket.io');
 
 const app = express();
+const server = http.createServer(app);
+const io = new Server(server, {
+  cors: {
+    origin: '*',
+    methods: ['GET', 'POST', 'DELETE'],
+  },
+});
+
 app.use(cors());
 app.use(express.json());
 
-// 1. Connessione a MongoDB Atlas
-const rawUri = process.env.MONGODB_URI;
-const MONGO_URI = rawUri ? `${rawUri.replace(/\/$/, '')}/stonapp?retryWrites=true&w=majority` : null;
+const PORT = 3001;
+const MONGO_URI = 'mongodb+srv://davcattan_db_user:2STQVQ4DXWw17unx@cluster0.7havsn1.mongodb.net/?appName=Cluster0' 
 
-if (!MONGO_URI) {
-  console.error('❌ ERRORE: MONGODB_URI non definita nel file env.');
-} else {
-  mongoose.connect(MONGO_URI)
-    .then(() => console.log('🍃 Connesso a MongoDB Atlas con successo!'))
-    .catch((err) => console.error('❌ Errore connessione MongoDB Atlas:', err.message));
-}
+
+// Connessione a MongoDB
+mongoose.connect(MONGO_URI)
+  .then(() => console.log('🍃 Connesso a MongoDB Atlas con successo'))
+  .catch((err) => console.error('❌ Errore connessione MongoDB:', err));
 
 // -------------------------------------------------------------
 // SCHEMI MONGOOSE
 // -------------------------------------------------------------
 
-// Modello Utente (User Model)
-const UserSchema = new mongoose.Schema({
-  username: { type: String, required: true, unique: true, trim: true },
-  email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+// 1. Schema Utente
+const userSchema = new mongoose.Schema({
+  username: { type: String, required: true, unique: true },
+  email: { type: String, required: true, unique: true },
   password: { type: String, required: true },
   avatar: { type: String, default: 'https://i.pravatar.cc/150' },
-  createdAt: { type: Date, default: Date.now },
+  contacts: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }], // Rubrica personale
+  createdAt: { type: Date, default: Date.now }
 });
 
-const User = mongoose.model('User', UserSchema);
+const User = mongoose.model('User', userSchema);
 
-// Modello Messaggi
-const MessageSchema = new mongoose.Schema({
+// 2. Schema Messaggi Chat
+const messageSchema = new mongoose.Schema({
   roomId: { type: String, required: true },
-  senderId: { type: String, required: true },
-  senderName: { type: String, required: true },
+  senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  senderName: String,
   text: { type: String, required: true },
   time: String,
-  createdAt: { type: Date, default: Date.now },
+  createdAt: { type: Date, default: Date.now }
 });
 
-const Message = mongoose.model('Message', MessageSchema);
+const Message = mongoose.model('Message', messageSchema);
+
+// 3. Schema Cerchia (Circle)
+const circleSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  type: { 
+    type: String, 
+    enum: ['COOPERATIVA', 'NEGOZIO', 'IMPRESA', 'GRUPPO'], 
+    default: 'COOPERATIVA' 
+  },
+  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  members: [{
+    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    role: { 
+      type: String, 
+      enum: ['AMMINISTRATORE', 'SOCIO_LAVORATORE', 'UTENTE', 'SOSTENITORE'],
+      default: 'UTENTE'
+    },
+    status: { type: String, enum: ['PENDING', 'ACCEPTED'], default: 'ACCEPTED' }
+  }],
+  createdAt: { type: Date, default: Date.now }
+});
+
+const Circle = mongoose.model('Circle', circleSchema);
+
+// 4. Schema Comunicazioni & Bacheca
+const announcementSchema = new mongoose.Schema({
+  circleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle', required: true },
+  authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  title: { type: String, required: true },
+  content: { type: String, required: true },
+  targetRole: { 
+    type: String, 
+    enum: ['ALL', 'SOCIO_LAVORATORE'], 
+    default: 'ALL' 
+  },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const Announcement = mongoose.model('Announcement', announcementSchema);
+
+// 5. Schema Documenti & Cedolini Riservati
+const documentSchema = new mongoose.Schema({
+  circleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle', required: true },
+  targetUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  title: { type: String, required: true },
+  fileUrl: { type: String, required: true },
+  docType: { type: String, enum: ['CEDOLINO', 'DOCUMENTO', 'CONTRATTO'], default: 'DOCUMENTO' },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const DocumentModel = mongoose.model('Document', documentSchema);
+
+// 6. Schema Orari di Lavoro
+const workShiftSchema = new mongoose.Schema({
+  circleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle', required: true },
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  day: { type: String, required: true },
+  shift: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+const WorkShift = mongoose.model('WorkShift', workShiftSchema);
 
 // -------------------------------------------------------------
-// ROTTE REST API (Autenticazione & Utenti)
+// ROTTE AUTH & UTENTI
 // -------------------------------------------------------------
 
-// Rotta 1: Registrazione
+// Registrazione
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { username, email, password } = req.body;
-
-    if (!username || !email || !password) {
-      return res.status(400).json({ error: 'Tutti i campi sono obbligatori' });
-    }
-
-    const cleanUsername = username.trim();
-    const cleanEmail = email.toLowerCase().trim();
-
-    // Verifica se l'utente esiste già
-    const existingUser = await User.findOne({
-      $or: [
-        { email: cleanEmail },
-        { username: cleanUsername }
-      ]
-    });
-
+    const existingUser = await User.findOne({ $or: [{ email }, { username }] });
     if (existingUser) {
-      return res.status(400).json({ error: 'Username o Email già in uso' });
+      return res.status(400).json({ error: 'Email o Username già registrati' });
     }
 
-    // Hash della password
-    const salt = await bcrypt.genSalt(10);
-    const hashedPassword = await bcrypt.hash(password, salt);
-
+    const hashedPassword = await bcrypt.hash(password, 10);
     const newUser = new User({
-      username: cleanUsername,
-      email: cleanEmail,
+      username,
+      email,
       password: hashedPassword,
-      avatar: `https://i.pravatar.cc/150?u=${cleanUsername}`,
+      avatar: `https://i.pravatar.cc/150?u=${username}`
     });
 
-    const savedUser = await newUser.save();
-
-    console.log(`👤 Nuovo utente registrato: ${savedUser.username}`);
-    res.status(201).json({
-      _id: savedUser._id,
-      username: savedUser.username,
-      email: savedUser.email,
-      avatar: savedUser.avatar,
-    });
-  } catch (error) {
-    console.error('Errore durante la registrazione:', error);
-    res.status(500).json({ error: 'Errore del server' });
+    await newUser.save();
+    res.status(201).json({ _id: newUser._id, username: newUser.username, email: newUser.email, avatar: newUser.avatar });
+  } catch (err) {
+    res.status(500).json({ error: 'Errore durante la registrazione' });
   }
 });
 
-// Rotta 2: Login (Email o Username)
+// Login
 app.post('/api/auth/login', async (req, res) => {
   try {
     const { email, password } = req.body;
-
-    if (!email || !password) {
-      return res.status(400).json({ error: 'Compila tutti i campi' });
-    }
-
-    const inputClean = email.trim();
-
-    const user = await User.findOne({
-      $or: [
-        { email: inputClean.toLowerCase() },
-        { username: inputClean }
-      ]
-    });
-
-    if (!user) {
-      return res.status(400).json({ error: 'Credenziali non valide' });
-    }
+    const user = await User.findOne({ $or: [{ email: email.toLowerCase() }, { username: email }] });
+    if (!user) return res.status(400).json({ error: 'Utente non trovato' });
 
     const isMatch = await bcrypt.compare(password, user.password);
-    if (!isMatch) {
-      return res.status(400).json({ error: 'Credenziali non valide' });
-    }
+    if (!isMatch) return res.status(400).json({ error: 'Password errata' });
 
-    console.log(`🔑 Login effettuato: ${user.username}`);
-    res.json({
-      _id: user._id,
-      username: user.username,
-      email: user.email,
-      avatar: user.avatar,
-    });
-  } catch (error) {
-    console.error('Errore durante il login:', error);
-    res.status(500).json({ error: 'Errore del server' });
+    res.json({ _id: user._id, username: user.username, email: user.email, avatar: user.avatar });
+  } catch (err) {
+    res.status(500).json({ error: 'Errore durante il login' });
   }
 });
 
-// Rotta 3: Lista di tutti gli utenti registrati (escludendo se stessi)
-app.get('/api/users/:currentUserId', async (req, res) => {
+// Verifica se un utente esiste ancora nel database
+app.get('/api/user/:userId', async (req, res) => {
   try {
-    const { currentUserId } = req.params;
-    const users = await User.find({ _id: { $ne: currentUserId } }).select('-password');
-    res.json(users);
-  } catch (error) {
-    res.status(500).json({ error: 'Errore nel recupero utenti' });
-  }
-});
-// Rotta 4: Elimina Definitivamente l'Account dell'Utente
-app.delete('/api/users/:userId', async (req, res) => {
-  try {
-    const { userId } = req.params;
+    const user = await User.findById(req.params.userId).select('-password');
 
-    // 1. Rimuovi l'utente dalla collezione Users
-    const deletedUser = await User.findByIdAndDelete(userId);
-    if (!deletedUser) {
+    if (!user) {
       return res.status(404).json({ error: 'Utente non trovato' });
     }
 
-    // 2. Rimuovi tutti i messaggi inviati da questo utente
-    await Message.deleteMany({ senderId: userId });
+    res.json(user);
+  } catch (err) {
+    console.error('Errore verifica utente:', err);
+    res.status(500).json({ error: 'Errore nel recupero dell’utente' });
+  }
+});
+
+// Lista Utenti (escluso quello loggato)
+app.get('/api/users/:currentUserId', async (req, res) => {
+  try {
+    const users = await User.find({ _id: { $ne: req.params.currentUserId } }).select('-password');
+    res.json(users);
+  } catch (err) {
+    res.status(500).json({ error: 'Errore nel recupero utenti' });
+  }
+});
+
+// Elimina Account Definitivamente
+app.delete('/api/users/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const deletedUser = await User.findByIdAndDelete(userId);
+    if (!deletedUser) {
+      return res.status(404).json({ error: 'Utente non trovato nel database' });
+    }
+
+    await Message.deleteMany({
+      $or: [{ senderId: userId }, { roomId: { $regex: userId } }]
+    });
 
     console.log(`🗑️ Account eliminato da MongoDB Atlas: ${deletedUser.username}`);
-    res.json({ message: 'Account e dati correlati eliminati con successo' });
+    res.json({ message: 'Account e dati eliminati con successo' });
   } catch (error) {
-    console.error('Errore durante l\'eliminazione dell\'account:', error);
     res.status(500).json({ error: 'Errore del server durante l\'eliminazione' });
   }
 });
 
 // -------------------------------------------------------------
-// EVENTI SOCKET.IO (Tempo Reale)
+// ROTTE CERCHIE & COOPERATIVA
 // -------------------------------------------------------------
 
-const server = http.createServer(app);
-const io = new Server(server, {
-  cors: { origin: '*', methods: ['GET', 'POST'] },
+// Crea Cerchia
+app.post('/api/circles', async (req, res) => {
+  try {
+    const { name, type, adminId, initialMembers } = req.body;
+    const members = [
+      { userId: adminId, role: 'AMMINISTRATORE', status: 'ACCEPTED' },
+      ...(initialMembers || [])
+    ];
+
+    const newCircle = new Circle({ name, type: type || 'COOPERATIVA', adminId, members });
+    await newCircle.save();
+
+    console.log(`✨ Nuova Cerchia creata: ${newCircle.name} (${newCircle.type})`);
+    res.status(201).json(newCircle);
+  } catch (error) {
+    res.status(500).json({ error: 'Impossibile creare la cerchia' });
+  }
 });
 
+// Recupera Cerchie dell'Utente
+app.get('/api/circles/user/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const circles = await Circle.find({ 'members.userId': userId })
+      .populate('members.userId', 'username avatar email');
+    res.json(circles);
+  } catch (error) {
+    res.status(500).json({ error: 'Errore nel recupero delle cerchie' });
+  }
+});
+
+// Invia Comunicazione
+app.post('/api/circles/announcements', async (req, res) => {
+  try {
+    const { circleId, authorId, title, content, targetRole } = req.body;
+    const announcement = new Announcement({ circleId, authorId, title, content, targetRole });
+    await announcement.save();
+    res.status(201).json(announcement);
+  } catch (error) {
+    res.status(500).json({ error: 'Errore invio comunicazione' });
+  }
+});
+
+// Leggi Comunicazioni per la Cerchia in base al Ruolo Utente
+app.get('/api/circles/:circleId/announcements/:role', async (req, res) => {
+  try {
+    const { circleId, role } = req.params;
+    let query = { circleId };
+
+    if (role !== 'SOCIO_LAVORATORE' && role !== 'AMMINISTRATORE') {
+      query.targetRole = 'ALL';
+    }
+
+    const announcements = await Announcement.find(query).sort({ createdAt: -1 });
+    res.json(announcements);
+  } catch (error) {
+    res.status(500).json({ error: 'Errore recupero comunicazioni' });
+  }
+});
+
+// Recupera Documenti Personali
+app.get('/api/circles/:circleId/documents/:userId', async (req, res) => {
+  try {
+    const { circleId, userId } = req.params;
+    const docs = await DocumentModel.find({ circleId, targetUserId: userId });
+    res.json(docs);
+  } catch (error) {
+    res.status(500).json({ error: 'Errore recupero documenti' });
+  }
+});
+
+// -------------------------------------------------------------
+// SOCKET.IO (CHAT REALTIME)
+// -------------------------------------------------------------
 io.on('connection', (socket) => {
-  console.log(`[Socket] Connesso: ${socket.id}`);
+  console.log(`🔌 Utente connesso: ${socket.id}`);
 
   socket.on('join_room', async (roomId) => {
     socket.join(roomId);
-    console.log(`[Socket] ${socket.id} entrato nella stanza: ${roomId}`);
-
     try {
       const history = await Message.find({ roomId }).sort({ createdAt: 1 });
       socket.emit('load_history', history);
-    } catch (error) {
-      console.error('Errore nel recupero della cronologia:', error);
+    } catch (err) {
+      console.error('Errore nel caricamento della cronologia:', err);
     }
   });
 
@@ -208,24 +304,21 @@ io.on('connection', (socket) => {
         senderId: data.senderId,
         senderName: data.senderName,
         text: data.text,
-        time: data.time,
+        time: data.time
       });
-
-      const savedMessage = await newMessage.save();
-      console.log(`[Stanza ${data.roomId}] Salvato su Atlas da ${data.senderName}: ${savedMessage.text}`);
-
-      io.to(data.roomId).emit('receive_message', savedMessage);
-    } catch (error) {
-      console.error('Errore nel salvataggio del messaggio:', error);
+      await newMessage.save();
+      io.to(data.roomId).emit('receive_message', newMessage);
+    } catch (err) {
+      console.error('Errore nell\'invio del messaggio:', err);
     }
   });
 
   socket.on('disconnect', () => {
-    console.log(`[Socket] Disconnesso: ${socket.id}`);
+    console.log(`❌ Utente disconnesso: ${socket.id}`);
   });
 });
 
-const PORT = process.env.PORT || 3001;
+// AVVIO SERVER
 server.listen(PORT, () => {
-  console.log(`🚀 Server stonApp attivo sulla porta ${PORT}`);
+  console.log(`🚀 Server stonApp attivo e in ascolto sulla porta ${PORT}`);
 });
