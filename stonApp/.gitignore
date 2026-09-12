@@ -26,10 +26,6 @@ npm-debug.*
 yarn-debug.*
 yarn-error.*
 
-# macOS
-.DS_Store
-*.pem
-
 # local env files
 .env*.local
 
@@ -39,3 +35,10 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# macOS
+.DS_Store
+**/.DS_Store
+
+# local certificates / keys
+*.pem
