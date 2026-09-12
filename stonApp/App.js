@@ -11,10 +11,80 @@ import { io } from 'socket.io-client';
 
 const API_BASE_URL = 'http://192.168.1.5:3001';
 
+
 const socket = io(API_BASE_URL, {
   transports: ['websocket'],
   autoConnect: true,
 });
+
+
+
+// Configurazione ufficiale delle Cerchie: tipologia -> ruoli -> selezioni/permessi.
+const CIRCLE_CONFIG = {
+  COOPERATIVA: {
+    label: 'Cooperativa',
+    roles: {
+      AMMINISTRATORE: { label: 'Amministratore', selections: [
+        ['Messaggi ai soci', true], ['Messaggi a tutti', true], ['Giorni di chiusura', true], ['Turni e orari', true], ['Trasporti', true], ['Documenti', true], ['Menu del giorno e del mese', true]
+      ]},
+      SOCIO_LAVORATORE: { label: 'Socio lavoratore', selections: [
+        ['Messaggi ai soci', true], ['Giorni di chiusura', false], ['Turni e orari', true], ['Trasporti', true], ['Messaggi a tutti', true], ['Documenti', true], ['Menu del giorno e del mese', true], ['Foglio presenze degli utenti', false]
+      ]},
+      VOLONTARIO: { label: 'Volontario', selections: [['Messaggi a tutti', false], ['Giorni di chiusura', false], ['Orari', false]] },
+      SOSTENITORE: { label: 'Sostenitore', selections: [['Messaggi a tutti', false], ['Giorni di chiusura', false], ['Orari', false]] },
+      UTENTE: { label: 'Utente', selections: [['Messaggi a tutti', false], ['Giorni di chiusura', false], ['Trasporti', false], ['Menu del giorno', false], ['Documenti personali', true]] }
+    }
+  },
+  IMPRESA: {
+    label: 'Impresa',
+    roles: {
+      AMMINISTRATORE: { label: 'Amministratore', selections: [['Comunicazioni a tutti', true], ['Comunicazioni solo a quadro', true], ['Comunicazioni solo a impiegato', true], ['Comunicazioni a quadro e impiegati', true], ['Documenti specifici per persona', true], ['Giorni di chiusura', true], ['Turni e orari di tutti', true]] },
+      QUADRO: { label: 'Quadro', selections: [['Comunicazioni a tutti', true], ['Comunicazione solo ad amministratore', true], ['Comunicazione ad amministratore e impiegato', true], ['Turni e orari di tutti', true], ['Giorni di chiusura', true], ['Documenti da inviare a singola persona', true]] },
+      IMPIEGATO: { label: 'Impiegato', selections: [['Comunicazioni con quadro e amministratore', true], ['Turni e orari solo degli impiegati', false], ['Giorni di chiusura', false], ['Comunicazioni a tutti', false], ['Cartella documenti personale', true]] },
+      OPERAIO: { label: 'Operaio', selections: [['Comunicazioni con quadro e amministratore', true], ['Turni e orari degli operai', false], ['Giorni di chiusura', false], ['Comunicazioni a tutti', false], ['Cartella documenti personale', true]] },
+      SERVIZI: { label: 'Servizi', selections: [['Comunicazioni con quadro e amministratore', true], ['Turni e orari degli operai', false], ['Giorni di chiusura', false], ['Comunicazioni a tutti', false], ['Cartella documenti personale', true]] }
+    }
+  },
+  GRUPPO: {
+    label: 'Gruppo', roles: {
+      AMMINISTRAZIONE: { label: 'Amministrazione', selections: [['Comunicazioni a tutti', true], ['Comunicazione ai responsabili', true], ['Eventi', true], ['Documenti specifici di ogni utente', true]] },
+      RESPONSABILE: { label: 'Responsabile', selections: [['Comunicazione a tutti', true], ['Comunicazione con amministratore e responsabili', true], ['Eventi', true], ['Documenti propri di ogni utente', true]] },
+      PARTECIPANTE: { label: 'Partecipante', selections: [['Comunicazione a tutti', false], ['Eventi', false], ['Documenti propri', true]] }
+    }
+  },
+  SQUADRA: {
+    label: 'Squadra', roles: {
+      DIRIGENTE: { label: 'Dirigente', selections: [['Comunicazioni a tutti', true], ['Comunicazione agli amministratori', true], ['Comunicazioni agli atleti', true], ['Comunicazione alle famiglie', true], ['Orari allenamenti', true], ['Calendario', true], ['Documenti specifici', true], ['Eventi', true]] },
+      AMMINISTRATORE: { label: 'Amministratore', selections: [['Comunicazione al dirigente', true], ['Comunicazione al dirigente e agli amministratori', true], ['Comunicazione agli atleti', true], ['Comunicazione a tutti', true], ['Documenti specifici', true], ['Orari allenamenti', true], ['Calendario', true], ['Eventi', true]] },
+      ATLETA: { label: 'Atleta', selections: [['Comunicazione con dirigente e amministratori', true], ['Orari allenamenti', false], ['Calendario', false], ['Comunicazione con tutti', false], ['Documenti specifici', true], ['Eventi', true]] },
+      GENITORE: { label: 'Genitore', selections: [['Comunicazione con dirigente e amministratori', true], ['Orari allenamenti', false], ['Calendario', false], ['Comunicazione con tutti', false], ['Documenti specifici', true], ['Eventi', true]] },
+      SOSTENITORE: { label: 'Sostenitore', selections: [['Comunicazione con dirigente e amministratori', true], ['Calendario', false], ['Comunicazione con tutti', false], ['Eventi', true]] }
+    }
+  },
+  NEGOZIO: {
+    label: 'Negozio', roles: {
+      CLIENTE: { label: 'Cliente', selections: [['Orari e chiusure', false], ['Promozioni', false], ['Comunicazioni', false], ['Comunicazione con il negozio', true]] },
+      RESPONSABILE_VENDITE: { label: 'Responsabile vendite', selections: [['Comunicazione con venditori e dirigente', true], ['Comunicazione con clienti', true], ['Comunicazione specifica con singolo cliente', true], ['Comunicazione solo con dirigente', true], ['Turni e orari', false], ['Documenti specifici del dirigente', true]] },
+      VENDITORE: { label: 'Venditore', selections: [['Turni e orari', false], ['Comunicazione con venditori e responsabile', true], ['Documenti specifici del venditore', true]] },
+      DIRIGENTE: { label: 'Dirigente', selections: [['Comunicazione con venditori e responsabile', true], ['Comunicazione solo con responsabili', true], ['Comunicazione ai clienti', true], ['Comunicazione a singolo cliente', true], ['Turni e orari', true]] }
+    }
+  },
+  SCUOLA: {
+    label: 'Scuola', roles: {
+      DIRIGENZA: { label: 'Dirigenza', selections: [['Orari e chiusure', true], ['Orari e turni', true], ['Comunicazioni', true], ['Documenti personali', true], ['La mia classe', true]] },
+      GENITORE: { label: 'Genitore', selections: [['Comunicazioni con professori e dirigenza', false], ['Orari e chiusure', false], ['Comunicazioni con tutti', false], ['Comunicazione con la dirigenza', true], ['Comunicazione con i genitori', true], ['Comunicazione studenti e professori', false], ['Documenti del proprio figlio', true], ['La mia classe', true]] },
+      STUDENTE: { label: 'Studente', selections: [['Orari e giorni di chiusura', false], ['Comunicazione con dirigenza', true], ['Comunicazione con professori e dirigenza', false], ['Comunicazioni con studenti', true], ['Comunicazione con tutti', false], ['Documenti personali', true], ['La mia classe', true]] },
+      PROFESSORE: { label: 'Professore/Professoressa', selections: [['Orari e chiusure', false], ['Turni e orari di lavoro', false], ['Comunicazione con dirigenza', true], ['Comunicazione con dirigenza e professori', true], ['Comunicazioni a tutti', false], ['Comunicazione ai genitori e studenti', true], ['Comunicazione studenti', true], ['La mia classe', true]] },
+      MAESTRO: { label: 'Maestro/Maestra', selections: [['Orari e chiusure', false], ['Turni e orari di lavoro', false], ['Comunicazione con dirigenza', true], ['Comunicazione con dirigenza e professori', true], ['Comunicazioni a tutti', false], ['Comunicazione ai genitori e studenti', true], ['Comunicazione studenti', true], ['La mia classe', true]] },
+      IMPIEGATO: { label: 'Impiegato', selections: [['Orari e chiusure', true], ['Comunicazioni professori e dirigenza', false], ['Comunicazione dirigenza e impiegati', true], ['Comunicazione a tutti', false], ['Comunicazione a bidelli e dirigenza', true], ['Comunicazione a volontari e dirigenza', true], ['Documenti personali', true], ['La mia classe', true]] },
+      BIDELLO: { label: 'Bidello', selections: [['Turni e orari', false], ['Chiusure', false], ['Comunicazione con dirigenza', true], ['Comunicazione tutti', false]] },
+      VOLONTARIO: { label: 'Volontario', selections: [['Calendario scolastico', false], ['Comunicazione volontari dirigenza', true], ['Comunicazione volontari', true]] }
+    }
+  }
+};
+
+const CIRCLE_OWNER_ROLE = { COOPERATIVA: 'AMMINISTRATORE', IMPRESA: 'AMMINISTRATORE', GRUPPO: 'AMMINISTRAZIONE', SQUADRA: 'DIRIGENTE', NEGOZIO: 'DIRIGENTE', SCUOLA: 'DIRIGENZA' };
+const roleLabel = (type, role) => CIRCLE_CONFIG[type]?.roles?.[role]?.label || role;
 
 const getRoomId = (userId1, userId2) => {
   if (!userId1 || !userId2) return '';
@@ -164,21 +234,38 @@ function RegisterScreen({ navigation, onLoginSuccess }) {
 // -------------------------------------------------------------
 // SCHERMATA HOME (CHAT + CERCHIE)
 // -------------------------------------------------------------
-function HomeScreen({ navigation, currentUser, onDeleteAccount, onLogout }) {
-  const [activeTab, setActiveTab] = useState('chats'); // 'chats' o 'circles'
+function HomeScreen({ navigation, currentUser, onDeleteAccount, onLogout, onUserUpdated }) {
+  const [activeTab, setActiveTab] = useState('chats');
   const [users, setUsers] = useState([]);
   const [circles, setCircles] = useState([]);
+  const [onlineUsers, setOnlineUsers] = useState({});
+  const [invites, setInvites] = useState([]);
   const [loading, setLoading] = useState(true);
-
-  // Stato Modale Crea Cerchia
-  const [modalVisible, setModalVisible] = useState(false);
-  const [circleName, setCircleName] = useState('');
-  const [selectedType, setSelectedType] = useState('COOPERATIVA');
-  const [selectedMembers, setSelectedMembers] = useState({}); // { userId: role }
+  const [settingsVisible, setSettingsVisible] = useState(false);
+  const [inviteVisible, setInviteVisible] = useState(false);
 
   useEffect(() => {
     fetchUsersAndCircles();
-  }, []);
+    fetchInvites();
+
+    const onPresence = ({ userId, online }) => {
+      setOnlineUsers(prev => ({ ...prev, [userId]: online }));
+    };
+    const onInvitation = (invite) => {
+      setInvites(prev => [invite, ...prev.filter(i => i.circleId !== invite.circleId)]);
+      Alert.alert('Nuovo invito', `${invite.inviterName} ti ha invitato nella cerchia "${invite.circleName}".`);
+    };
+
+    socket.on('presence_update', onPresence);
+    socket.on('circle_invitation', onInvitation);
+    socket.emit('get_online_users');
+    
+return () => {
+  socket.off('presence_update', onPresence);
+  socket.off('circle_invitation', onInvitation);
+};
+
+  }, [currentUser._id]);
 
   const fetchUsersAndCircles = async () => {
     setLoading(true);
@@ -198,226 +285,122 @@ function HomeScreen({ navigation, currentUser, onDeleteAccount, onLogout }) {
     }
   };
 
- const confirmDeleteAccount = () => {
-    Alert.alert(
-      'Elimina Account',
-      'Sei sicuro di voler eliminare definitivamente il tuo profilo e tutti i dati correlati?',
-      [
-        { text: 'Annulla', style: 'cancel' },
-        { 
-          text: 'Elimina', 
-          style: 'destructive', 
-          onPress: async () => {
-            
-            await onDeleteAccount();
-          } 
-        },
-      ]
-    );
-  };
-
-  const toggleUserMemberRole = (userId, role) => {
-    setSelectedMembers(prev => {
-      const copy = { ...prev };
-      if (copy[userId] === role) {
-        delete copy[userId];
-      } else {
-        copy[userId] = role;
-      }
-      return copy;
-    });
-  };
-
-  const handleCreateCircle = async () => {
-    if (!circleName.trim()) {
-      Alert.alert('Errore', 'Inserisci un nome per la Cerchia');
-      return;
-    }
-
-    const initialMembers = Object.keys(selectedMembers).map(userId => ({
-      userId,
-      role: selectedMembers[userId],
-      status: 'ACCEPTED'
-    }));
-
+  const fetchInvites = async () => {
     try {
-      const res = await fetch(`${API_BASE_URL}/api/circles`, {
+      const res = await fetch(`${API_BASE_URL}/api/circle-invitations/${currentUser._id}`);
+      const data = await res.json();
+      if (res.ok) setInvites(Array.isArray(data) ? data : []);
+    } catch (err) {
+      console.error('Errore inviti:', err);
+    }
+  };
+
+  const respondInvite = async (invite, accepted) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/circles/${invite.circleId}/${accepted ? 'accept' : 'reject'}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: circleName.trim(),
-          type: selectedType,
-          adminId: currentUser._id,
-          initialMembers
-        }),
+        body: JSON.stringify({ userId: currentUser._id })
       });
-
-      if (res.ok) {
-        Alert.alert('Successo', 'Cerchia creata con successo!');
-        setModalVisible(false);
-        setCircleName('');
-        setSelectedMembers({});
-        fetchUsersAndCircles();
-      } else {
-        Alert.alert('Errore', 'Impossibile creare la Cerchia');
-      }
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Operazione non riuscita');
+      setInvites(prev => prev.filter(i => i.circleId !== invite.circleId));
+      if (accepted) fetchUsersAndCircles();
+      Alert.alert('StoneApp', accepted ? 'Invito accettato.' : 'Invito rifiutato.');
     } catch (err) {
-      Alert.alert('Errore', 'Connessione al server fallita');
+      Alert.alert('Errore', err.message);
     }
   };
 
   return (
     <SafeAreaView style={styles.homeContainer} edges={['bottom']}>
-      {/* Header Profilo */}
       <View style={styles.userHeader}>
-        <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-          <Image source={{ uri: currentUser.avatar }} style={{ width: 38, height: 38, borderRadius: 19, marginRight: 10 }} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', flex: 1 }}>
           <View>
-            <Text style={styles.userHeaderText}>{currentUser.username}</Text>
-            <Text style={{ fontSize: 11, color: '#10B981', fontWeight: '600' }}>● Attivo</Text>
+            <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+              <Image source={{ uri: currentUser.avatar }} style={{ width: 38, height: 38, borderRadius: 19, marginRight: 10 }} />
+              <Text style={styles.userHeaderText}>{currentUser.username}</Text>
+              <View style={styles.onlineDot} />
+            </View>
+            <Text style={styles.activeText}>Attivo</Text>
           </View>
         </View>
-
-        <View style={{ flexDirection: 'row', gap: 8 }}>
-          <TouchableOpacity onPress={onLogout} style={styles.closeBadge}>
-            <Text style={styles.closeBadgeText}>Logout</Text>
-          </TouchableOpacity>
-          <TouchableOpacity onPress={confirmDeleteAccount} style={styles.deleteBadge}>
-            <Text style={styles.deleteBadgeText}>Elimina Account</Text>
-          </TouchableOpacity>
-        </View>
+        <TouchableOpacity onPress={() => setInviteVisible(true)} style={styles.iconButton}>
+          <Text style={styles.iconButtonText}>✉️{invites.length ? ` ${invites.length}` : ''}</Text>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={() => setSettingsVisible(true)} style={styles.gearButton}>
+          <Text style={{ fontSize: 22 }}>⚙️</Text>
+        </TouchableOpacity>
       </View>
 
-      {/* Tabs Selettore Chat / Cerchie */}
       <View style={styles.tabContainer}>
-        <TouchableOpacity 
-          style={[styles.tabButton, activeTab === 'chats' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('chats')}
-        >
-          <Text style={[styles.tabText, activeTab === 'chats' && styles.tabTextActive]}>Chat Singole</Text>
+        <TouchableOpacity style={[styles.tabButton, activeTab === 'chats' && styles.tabButtonActive]} onPress={() => setActiveTab('chats')}>
+          <Text style={[styles.tabText, activeTab === 'chats' && styles.tabTextActive]}>Chat</Text>
         </TouchableOpacity>
-
-        <TouchableOpacity 
-          style={[styles.tabButton, activeTab === 'circles' && styles.tabButtonActive]}
-          onPress={() => setActiveTab('circles')}
-        >
+        <TouchableOpacity style={[styles.tabButton, activeTab === 'circles' && styles.tabButtonActive]} onPress={() => setActiveTab('circles')}>
           <Text style={[styles.tabText, activeTab === 'circles' && styles.tabTextActive]}>Cerchie ({circles.length})</Text>
         </TouchableOpacity>
       </View>
 
-      {/* Contenuto Principale */}
       <View style={{ flex: 1 }}>
-        {loading ? (
-          <ActivityIndicator size="large" color="#6366F1" style={{ marginTop: 20 }} />
-        ) : activeTab === 'chats' ? (
+        {loading ? <ActivityIndicator size="large" color="#6366F1" style={{ marginTop: 20 }} /> : activeTab === 'chats' ? (
           <FlatList
             data={users}
-            keyExtractor={(item) => item._id}
+            keyExtractor={item => item._id}
             ListEmptyComponent={<Text style={styles.emptyText}>Nessun contatto presente.</Text>}
             renderItem={({ item }) => (
               <TouchableOpacity style={styles.chatCard} onPress={() => navigation.navigate('Chat', { recipient: item })}>
-                <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
+                <View>
+                  <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
+                  {onlineUsers[item._id] && <View style={styles.avatarOnlineDot} />}
+                </View>
                 <View style={styles.chatInfo}>
                   <Text style={styles.chatName}>{item.username}</Text>
-                  <Text style={styles.lastMessage}>Tocca per chattare in tempo reale</Text>
+                  <Text style={styles.lastMessage}>{onlineUsers[item._id] ? '● Online' : 'Offline'}</Text>
                 </View>
               </TouchableOpacity>
             )}
           />
         ) : (
           <View style={{ flex: 1 }}>
-            <TouchableOpacity style={styles.createCircleBtn} onPress={() => setModalVisible(true)}>
+            <TouchableOpacity style={styles.createCircleBtn} onPress={() => navigation.navigate('CreateCircle', { onCreated: fetchUsersAndCircles })}>
               <Text style={styles.createCircleBtnText}>+ Crea Nuova Cerchia</Text>
             </TouchableOpacity>
-
             <FlatList
               data={circles}
-              keyExtractor={(item) => item._id}
+              keyExtractor={item => item._id}
               ListEmptyComponent={<Text style={styles.emptyText}>Non fai ancora parte di nessuna Cerchia.</Text>}
-              renderItem={({ item }) => {
-                const myMemberInfo = item.members.find(m => m.userId?._id === currentUser._id || m.userId === currentUser._id);
-                return (
-                  <TouchableOpacity 
-                    style={styles.circleCard}
-                    onPress={() => navigation.navigate('CircleDetail', { circle: item, myRole: myMemberInfo?.role || 'UTENTE' })}
-                  >
-                    <View style={styles.circleIcon}>
-                      <Text style={{ fontSize: 20 }}>🏢</Text>
-                    </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.chatName}>{item.name}</Text>
-                      <Text style={styles.circleTypeBadges}>{item.type} • Ruolo: {myMemberInfo?.role || 'UTENTE'}</Text>
-                    </View>
-                  </TouchableOpacity>
-                );
-              }}
+              renderItem={({ item }) => (
+                <TouchableOpacity style={styles.circleCard} onPress={() => navigation.navigate('CircleDetail', { circle: item })}>
+                  <View style={styles.circleIcon}><Text style={{ fontSize: 20 }}>🏢</Text></View>
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.chatName}>{item.name}</Text>
+                    <Text style={styles.circleTypeBadges}>{item.type}</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
             />
           </View>
         )}
       </View>
 
-      {/* MODALE CREA CERCHIA */}
-      <Modal visible={modalVisible} animationType="slide" transparent={true}>
+      <SettingsModal visible={settingsVisible} onClose={() => setSettingsVisible(false)} currentUser={currentUser} onUserUpdated={onUserUpdated} onLogout={onLogout} onDeleteAccount={onDeleteAccount} />
+
+      <Modal visible={inviteVisible} animationType="slide" transparent>
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
-            <Text style={styles.modalTitle}>Crea Nuova Cerchia</Text>
-
-            <TextInput
-              style={styles.authInput}
-              placeholder="Nome Cerchia (es. Cooperativa Aurora)"
-              value={circleName}
-              onChangeText={setCircleName}
-            />
-
-            <Text style={styles.subSectionTitle}>Tipologia:</Text>
-            <View style={styles.typeSelectorRow}>
-              {['COOPERATIVA', 'NEGOZIO', 'IMPRESA', 'GRUPPO'].map((type) => (
-                <TouchableOpacity 
-                  key={type} 
-                  style={[styles.typeChip, selectedType === type && styles.typeChipActive]}
-                  onPress={() => setSelectedType(type)}
-                >
-                  <Text style={[styles.typeChipText, selectedType === type && styles.typeChipTextActive]}>{type}</Text>
-                </TouchableOpacity>
-              ))}
-            </View>
-
-            <Text style={styles.subSectionTitle}>Aggiungi Utenti e Assegna Ruolo:</Text>
-            <FlatList
-              data={users}
-              style={{ maxHeight: 200 }}
-              keyExtractor={(item) => item._id}
-              renderItem={({ item }) => {
-                const currentAssignedRole = selectedMembers[item._id];
-                return (
-                  <View style={styles.userRoleRow}>
-                    <Text style={{ flex: 1, fontWeight: '600' }}>{item.username}</Text>
-                    <View style={{ flexDirection: 'row', gap: 4 }}>
-                      {['UTENTE', 'SOCIO_LAVORATORE', 'SOSTENITORE'].map((r) => (
-                        <TouchableOpacity
-                          key={r}
-                          style={[styles.roleMiniBadge, currentAssignedRole === r && styles.roleMiniBadgeActive]}
-                          onPress={() => toggleUserMemberRole(item._id, r)}
-                        >
-                          <Text style={{ fontSize: 10, color: currentAssignedRole === r ? '#FFF' : '#475569' }}>
-                            {r === 'SOCIO_LAVORATORE' ? 'SOCIO' : r}
-                          </Text>
-                        </TouchableOpacity>
-                      ))}
-                    </View>
-                  </View>
-                );
-              }}
-            />
-
-            <View style={styles.modalActions}>
-              <TouchableOpacity style={styles.cancelBtn} onPress={() => setModalVisible(false)}>
-                <Text style={{ fontWeight: 'bold', color: '#64748B' }}>Annulla</Text>
-              </TouchableOpacity>
-              <TouchableOpacity style={styles.confirmBtn} onPress={handleCreateCircle}>
-                <Text style={{ fontWeight: 'bold', color: '#FFF' }}>Crea Cerchia</Text>
-              </TouchableOpacity>
-            </View>
+            <Text style={styles.modalTitle}>Inviti alle Cerchie</Text>
+            {invites.length === 0 ? <Text style={styles.emptyText}>Non hai inviti in sospeso.</Text> : invites.map(invite => (
+              <View key={invite.circleId} style={styles.inviteCard}>
+                <Text style={styles.chatName}>{invite.circleName}</Text>
+                <Text style={styles.lastMessage}>{invite.inviterName} ti ha invitato come {invite.role}</Text>
+                <View style={styles.modalActions}>
+                  <TouchableOpacity style={styles.rejectBtn} onPress={() => respondInvite(invite, false)}><Text style={{ fontWeight: 'bold', color: '#EF4444' }}>Rifiuta</Text></TouchableOpacity>
+                  <TouchableOpacity style={styles.confirmBtn} onPress={() => respondInvite(invite, true)}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>Accetta</Text></TouchableOpacity>
+                </View>
+              </View>
+            ))}
+            <TouchableOpacity style={styles.cancelBtn} onPress={() => setInviteVisible(false)}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Chiudi</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
@@ -425,61 +408,149 @@ function HomeScreen({ navigation, currentUser, onDeleteAccount, onLogout }) {
   );
 }
 
+function CreateCircleScreen({ navigation, currentUser }) {
+  const [circleName, setCircleName] = useState('');
+  const [selectedType, setSelectedType] = useState('COOPERATIVA');
+  const [users, setUsers] = useState([]);
+  const [pendingMembers, setPendingMembers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedRole, setSelectedRole] = useState(null);
+  const [addVisible, setAddVisible] = useState(false);
+  const [loading, setLoading] = useState(false);
+
+  const roles = Object.entries(CIRCLE_CONFIG[selectedType].roles);
+
+  useEffect(() => {
+    fetch(`${API_BASE_URL}/api/users/${currentUser._id}`).then(r => r.json()).then(data => setUsers(Array.isArray(data) ? data : [])).catch(() => {});
+  }, [currentUser._id]);
+
+  const openAdd = () => { setSelectedUser(null); setSelectedRole(roles[0]?.[0] || null); setAddVisible(true); };
+  const addMember = () => {
+    if (!selectedUser || !selectedRole) return Alert.alert('Errore', 'Seleziona utente e ruolo.');
+    if (pendingMembers.some(m => m.userId === selectedUser._id)) return Alert.alert('Errore', 'Questo utente è già stato inserito.');
+    setPendingMembers(prev => [...prev, { userId: selectedUser._id, username: selectedUser.username, role: selectedRole }]);
+    setAddVisible(false);
+  };
+  const removeMember = (userId) => setPendingMembers(prev => prev.filter(m => m.userId !== userId));
+
+  const handleCreate = async () => {
+    if (!circleName.trim()) return Alert.alert('Errore', 'Inserisci un nome per la Cerchia');
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/circles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: circleName.trim(), type: selectedType, adminId: currentUser._id, initialMembers: pendingMembers.map(m => ({ userId: m.userId, role: m.role })) }) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Impossibile creare la Cerchia');
+      Alert.alert('StoneApp', pendingMembers.length ? 'Cerchia creata e inviti inviati.' : 'Cerchia creata.');
+      navigation.goBack();
+    } catch (err) { Alert.alert('Errore', err.message); } finally { setLoading(false); }
+  };
+
+  return <SafeAreaView style={styles.homeContainer}>
+    <FlatList data={pendingMembers} keyExtractor={item => item.userId} contentContainerStyle={{ padding: 20 }} ListHeaderComponent={<View>
+      <Text style={styles.modalTitle}>Crea Nuova Cerchia</Text>
+      <TextInput style={styles.authInput} placeholder="Nome Cerchia" value={circleName} onChangeText={setCircleName} />
+      <Text style={styles.subSectionTitle}>Tipologia:</Text>
+      <View style={styles.typeSelectorRow}>{Object.entries(CIRCLE_CONFIG).map(([type, cfg]) => <TouchableOpacity key={type} style={[styles.typeChip, selectedType === type && styles.typeChipActive]} onPress={() => { setSelectedType(type); setPendingMembers([]); }}><Text style={[styles.typeChipText, selectedType === type && styles.typeChipTextActive]}>{cfg.label}</Text></TouchableOpacity>)}</View>
+      <TouchableOpacity style={styles.createCircleBtn} onPress={openAdd}><Text style={styles.createCircleBtnText}>+ Inserisci utente</Text></TouchableOpacity>
+      <Text style={styles.subSectionTitle}>Utenti da invitare:</Text>
+    </View>} ListEmptyComponent={<Text style={styles.emptyText}>Nessun utente inserito.</Text>} renderItem={({ item }) => <View style={styles.memberRow}><View style={{ flex: 1 }}><Text style={styles.chatName}>{item.username}</Text><Text style={styles.lastMessage}>{roleLabel(selectedType, item.role)}</Text></View><TouchableOpacity onPress={() => removeMember(item.userId)}><Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Rimuovi</Text></TouchableOpacity></View>} ListFooterComponent={<TouchableOpacity style={styles.confirmBtn} onPress={handleCreate} disabled={loading}><Text style={{ color: '#FFF', fontWeight: 'bold' }}>{loading ? 'Creazione...' : 'CREA CERCHIA'}</Text></TouchableOpacity>} />
+
+    <Modal visible={addVisible} transparent animationType="slide"><View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>Inserisci utente</Text><FlatList data={users.filter(u => !pendingMembers.some(m => m.userId === u._id))} keyExtractor={u => u._id} style={{ maxHeight: 260 }} renderItem={({ item }) => <TouchableOpacity style={[styles.selectUserRow, selectedUser?._id === item._id && styles.selectUserActive]} onPress={() => setSelectedUser(item)}><Text style={styles.chatName}>{item.username}</Text></TouchableOpacity>} /><Text style={styles.subSectionTitle}>Ruolo:</Text><View style={styles.typeSelectorRow}>{roles.map(([key, cfg]) => <TouchableOpacity key={key} style={[styles.typeChip, selectedRole === key && styles.typeChipActive]} onPress={() => setSelectedRole(key)}><Text style={[styles.typeChipText, selectedRole === key && styles.typeChipTextActive]}>{cfg.label}</Text></TouchableOpacity>)}</View><View style={styles.modalActions}><TouchableOpacity style={styles.cancelBtn} onPress={() => setAddVisible(false)}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Annulla</Text></TouchableOpacity><TouchableOpacity style={styles.confirmBtn} onPress={addMember}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>Inserisci</Text></TouchableOpacity></View></View></View></Modal>
+  </SafeAreaView>;
+}
+
+function SettingsModal({ visible, onClose, currentUser, onUserUpdated, onLogout, onDeleteAccount }) {
+  const [editVisible, setEditVisible] = useState(false);
+  const [mode, setMode] = useState('name');
+  const [value, setValue] = useState('');
+  const [password, setPassword] = useState('');
+
+  const openEdit = (m) => { setMode(m); setValue(m === 'name' ? currentUser.username : m === 'email' ? currentUser.email : currentUser.avatar || ''); setPassword(''); setEditVisible(true); };
+  const save = async () => {
+    try {
+      const body = mode === 'password' ? { password: value, currentPassword: password } : mode === 'name' ? { username: value } : mode === 'email' ? { email: value } : { avatar: value };
+      const res = await fetch(`${API_BASE_URL}/api/users/${currentUser._id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Salvataggio non riuscito');
+      onUserUpdated(data);
+      setEditVisible(false);
+      Alert.alert('StoneApp', 'Dati aggiornati.');
+    } catch (err) { Alert.alert('Errore', err.message); }
+  };
+
+  return <Modal visible={visible} animationType="slide" transparent>
+    <View style={styles.modalOverlay}><View style={styles.modalContent}>
+      <Text style={styles.modalTitle}>Impostazioni</Text>
+      <TouchableOpacity style={styles.settingsRow} onPress={() => openEdit('name')}><Text>👤 Cambia nome</Text></TouchableOpacity>
+      <TouchableOpacity style={styles.settingsRow} onPress={() => openEdit('avatar')}><Text>📷 Cambia foto</Text></TouchableOpacity>
+      <TouchableOpacity style={styles.settingsRow} onPress={() => openEdit('email')}><Text>✉️ Cambia email</Text></TouchableOpacity>
+      <TouchableOpacity style={styles.settingsRow} onPress={() => openEdit('password')}><Text>🔐 Modifica password</Text></TouchableOpacity>
+      <TouchableOpacity style={styles.settingsRow} onPress={onLogout}><Text>🚪 Logout</Text></TouchableOpacity>
+      <TouchableOpacity style={[styles.settingsRow, { borderColor: '#FECACA' }]} onPress={onDeleteAccount}><Text style={{ color: '#EF4444', fontWeight: 'bold' }}>🗑️ Elimina account</Text></TouchableOpacity>
+      <TouchableOpacity style={styles.cancelBtn} onPress={onClose}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Chiudi</Text></TouchableOpacity>
+
+      <Modal visible={editVisible} transparent animationType="fade">
+        <View style={styles.modalOverlay}><View style={styles.modalContent}>
+          <Text style={styles.modalTitle}>{mode === 'name' ? 'Cambia nome' : mode === 'email' ? 'Cambia email' : mode === 'avatar' ? 'Cambia foto' : 'Modifica password'}</Text>
+          <TextInput style={styles.authInput} value={value} onChangeText={setValue} placeholder={mode === 'avatar' ? 'URL della nuova foto' : mode === 'password' ? 'Nuova password' : ''} secureTextEntry={mode === 'password'} />
+          {mode === 'password' && <TextInput style={styles.authInput} value={password} onChangeText={setPassword} placeholder="Password attuale" secureTextEntry />}
+          <View style={styles.modalActions}><TouchableOpacity style={styles.cancelBtn} onPress={() => setEditVisible(false)}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Annulla</Text></TouchableOpacity><TouchableOpacity style={styles.confirmBtn} onPress={save}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>Salva</Text></TouchableOpacity></View>
+        </View></View>
+      </Modal>
+    </View></View>
+  </Modal>;
+}
+
 // -------------------------------------------------------------
-// SCHERMATA DETTAGLIO CERCHIA (MENU DINAMICO RUOLI)
+// SCHERMATA DETTAGLIO CERCHIA
 // -------------------------------------------------------------
-function CircleDetailScreen({ route }) {
-  const { circle, myRole } = route.params;
+function CircleDetailScreen({ route, navigation, currentUser, onDeleteAccount, onLogout, onUserUpdated }) {
+  const { circle: initialCircle } = route.params;
+  const [circle, setCircle] = useState(initialCircle);
+  const [tab, setTab] = useState('chat');
+  const [onlineUsers, setOnlineUsers] = useState({});
+  const [addVisible, setAddVisible] = useState(false);
+  const [users, setUsers] = useState([]);
+  const [selectedUser, setSelectedUser] = useState(null);
+  const [selectedRole, setSelectedRole] = useState(null);
+  const [settingsVisible, setSettingsVisible] = useState(false);
 
-  return (
-    <SafeAreaView style={styles.chatContainer}>
-      <View style={styles.circleRoleHeader}>
-        <Text style={styles.circleRoleText}>Il tuo ruolo: <Text style={{ fontWeight: 'bold', color: '#6366F1' }}>{myRole}</Text></Text>
-      </View>
+  const acceptedMembers = (circle.members || []).filter(m => m.status === 'ACCEPTED' && m.userId);
+  const myMember = acceptedMembers.find(m => String(m.userId?._id || m.userId) === String(currentUser._id));
+  const canManageMembers = myMember?.role === CIRCLE_OWNER_ROLE[circle.type];
+  const config = CIRCLE_CONFIG[circle.type] || CIRCLE_CONFIG.COOPERATIVA;
+  const myRoleConfig = config.roles[myMember?.role];
 
-      <Text style={styles.sectionTitleStyle}>Pulsanti e Sezioni disponibili:</Text>
+  useEffect(() => {
+    const onPresence = ({ userId, online }) => setOnlineUsers(prev => ({ ...prev, [userId]: online }));
+    const onOnlineUsers = ids => { const map = {}; (ids || []).forEach(id => { map[String(id)] = true; }); setOnlineUsers(map); };
+    socket.on('presence_update', onPresence); socket.on('online_users', onOnlineUsers); socket.emit('get_online_users');
+    return () => { socket.off('presence_update', onPresence); socket.off('online_users', onOnlineUsers); };
+  }, []);
 
-      {/* MENU UTENTE */}
-      {myRole === 'UTENTE' && (
-        <View style={styles.menuGrid}>
-          <TouchableOpacity style={styles.menuCard}><Text>📍 Oggi al Centro</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>📄 I miei Documenti</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>🍽️ Menu del Giorno</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>📅 Giorni di Chiusura</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>📢 Comunicazioni</Text></TouchableOpacity>
-        </View>
-      )}
+  const refreshCircle = async () => { const res = await fetch(`${API_BASE_URL}/api/circles/${circle._id}/${currentUser._id}`); if (res.ok) setCircle(await res.json()); };
+  const openAdd = async () => {
+    try { const res = await fetch(`${API_BASE_URL}/api/users/${currentUser._id}`); const data = await res.json(); const memberIds = new Set((circle.members || []).map(m => String(m.userId?._id || m.userId))); setUsers((Array.isArray(data) ? data : []).filter(u => !memberIds.has(String(u._id)))); setSelectedUser(null); setSelectedRole(Object.keys(config.roles)[0] || null); setAddVisible(true); }
+    catch { Alert.alert('Errore', 'Impossibile caricare gli utenti.'); }
+  };
+  const sendInvite = async () => {
+    if (!selectedUser || !selectedRole) return Alert.alert('Errore', 'Seleziona utente e ruolo.');
+    try { const res = await fetch(`${API_BASE_URL}/api/circles/${circle._id}/invite`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ inviterId: currentUser._id, userId: selectedUser._id, role: selectedRole }) }); const data = await res.json(); if (!res.ok) throw new Error(data.error || 'Invito non inviato'); setAddVisible(false); await refreshCircle(); Alert.alert('StoneApp', 'Invito inviato.'); }
+    catch (err) { Alert.alert('Errore', err.message); }
+  };
 
-      {/* MENU SOCIO LAVORATORE */}
-      {myRole === 'SOCIO_LAVORATORE' && (
-        <View style={styles.menuGrid}>
-          <TouchableOpacity style={styles.menuCard}><Text>📄 I miei Documenti</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>💶 Cedolini e Varie</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>🚌 Trasporti</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>⏰ Orario</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>📢 Comunicazioni</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>🔒 Bacheca Amministratore</Text></TouchableOpacity>
-        </View>
-      )}
+  const chatMembers = acceptedMembers.filter(m => String(m.userId?._id || m.userId) !== String(currentUser._id));
 
-      {/* MENU SOSTENITORE */}
-      {myRole === 'SOSTENITORE' && (
-        <View style={styles.menuGrid}>
-          <TouchableOpacity style={styles.menuCard}><Text>📢 Comunicazioni</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCard}><Text>📅 Giorni di Chiusura</Text></TouchableOpacity>
-        </View>
-      )}
+  return <SafeAreaView style={styles.chatContainer} edges={['bottom']}>
+    <View style={styles.circleHeaderLarge}><View style={{ flex: 1 }}><Text style={styles.circleTitle}>{circle.name}</Text><View style={{ flexDirection: 'row', alignItems: 'center' }}><Text style={styles.circleUserName}>{currentUser.username}</Text><View style={styles.onlineDot} /><Text style={styles.activeText}>Attivo</Text></View></View><TouchableOpacity style={styles.gearButton} onPress={() => setSettingsVisible(true)}><Text style={{ fontSize: 22 }}>⚙️</Text></TouchableOpacity></View>
+    <Text style={styles.circleChatTitle}>Chat della cerchia</Text>
+    <View style={styles.tabContainer}><TouchableOpacity style={[styles.tabButton, tab === 'chat' && styles.tabButtonActive]} onPress={() => setTab('chat')}><Text style={[styles.tabText, tab === 'chat' && styles.tabTextActive]}>Chat</Text></TouchableOpacity><TouchableOpacity style={[styles.tabButton, tab === 'selections' && styles.tabButtonActive]} onPress={() => setTab('selections')}><Text style={[styles.tabText, tab === 'selections' && styles.tabTextActive]}>Selezioni</Text></TouchableOpacity></View>
 
-      {/* MENU AMMINISTRATORE */}
-      {myRole === 'AMMINISTRATORE' && (
-        <View style={styles.menuGrid}>
-          <TouchableOpacity style={styles.menuCardAdmin}><Text style={{ color: '#FFF' }}>📊 Gestione Soci & Orari</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCardAdmin}><Text style={{ color: '#FFF' }}>📢 Invia Avviso Generale</Text></TouchableOpacity>
-          <TouchableOpacity style={styles.menuCardAdmin}><Text style={{ color: '#FFF' }}>🔒 Invia Avviso Riservato Soci</Text></TouchableOpacity>
-        </View>
-      )}
-    </SafeAreaView>
-  );
+    {tab === 'chat' ? <FlatList data={chatMembers} keyExtractor={item => String(item.userId?._id || item.userId)} ListEmptyComponent={<Text style={styles.emptyText}>Nessun altro membro accettato nella cerchia.</Text>} renderItem={({ item }) => { const u = item.userId; const id = String(u._id || u); return <TouchableOpacity style={styles.chatCard} onPress={() => navigation.navigate('Chat', { recipient: u })}><View><Image source={{ uri: u.avatar }} style={styles.chatAvatar} />{onlineUsers[id] && <View style={styles.avatarOnlineDot} />}</View><View style={styles.chatInfo}><Text style={styles.chatName}>{u.username}</Text><Text style={styles.lastMessage}>{roleLabel(circle.type, item.role)} {onlineUsers[id] ? '• Online' : '• Offline'}</Text></View></TouchableOpacity>; }} /> : <FlatList contentContainerStyle={{ padding: 15 }} data={myRoleConfig?.selections || []} keyExtractor={([name]) => name} ListHeaderComponent={<View>{myMember && <View style={styles.memberRoleBanner}><Text style={styles.circleRoleText}>Ruolo: {roleLabel(circle.type, myMember.role)}</Text></View>}{canManageMembers && <TouchableOpacity style={styles.addUserBtn} onPress={openAdd}><Text style={styles.createCircleBtnText}>+ Aggiungi utente</Text></TouchableOpacity>}<Text style={styles.subSectionTitle}>Funzioni disponibili</Text></View>} ListEmptyComponent={<Text style={styles.emptyText}>Nessuna selezione disponibile per questo ruolo.</Text>} renderItem={({ item }) => <TouchableOpacity style={styles.selectionCard}><View style={{ flex: 1 }}><Text style={styles.chatName}>{item[0]}</Text><Text style={styles.lastMessage}>{item[1] ? 'Modificabile' : 'Solo lettura'}</Text></View><Text style={{ fontSize: 18 }}>{item[1] ? '✏️' : '👁️'}</Text></TouchableOpacity>} />}
+
+    <Modal visible={addVisible} transparent animationType="slide"><View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>Aggiungi utente</Text><FlatList data={users} keyExtractor={u => u._id} style={{ maxHeight: 260 }} renderItem={({ item }) => <TouchableOpacity style={[styles.selectUserRow, selectedUser?._id === item._id && styles.selectUserActive]} onPress={() => setSelectedUser(item)}><Text style={styles.chatName}>{item.username}</Text>{onlineUsers[item._id] && <Text style={styles.lastMessage}>● Online</Text>}</TouchableOpacity>} /><Text style={styles.subSectionTitle}>Ruolo:</Text><View style={styles.typeSelectorRow}>{Object.entries(config.roles).map(([key, cfg]) => <TouchableOpacity key={key} style={[styles.typeChip, selectedRole === key && styles.typeChipActive]} onPress={() => setSelectedRole(key)}><Text style={[styles.typeChipText, selectedRole === key && styles.typeChipTextActive]}>{cfg.label}</Text></TouchableOpacity>)}</View><View style={styles.modalActions}><TouchableOpacity style={styles.cancelBtn} onPress={() => setAddVisible(false)}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Annulla</Text></TouchableOpacity><TouchableOpacity style={styles.confirmBtn} onPress={sendInvite}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>Invia invito</Text></TouchableOpacity></View></View></View></Modal>
+    <SettingsModal visible={settingsVisible} onClose={() => setSettingsVisible(false)} currentUser={currentUser} onUserUpdated={onUserUpdated} onLogout={onLogout} onDeleteAccount={onDeleteAccount} />
+  </SafeAreaView>;
 }
 
 // -------------------------------------------------------------
@@ -489,6 +560,7 @@ function ChatScreen({ route, currentUser }) {
   const { recipient } = route.params;
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
+  const [settingsVisible, setSettingsVisible] = useState(false);
 
   const roomId = getRoomId(currentUser._id, recipient._id);
 
@@ -566,6 +638,14 @@ export default function App() {
     checkSavedUser();
   }, []);
 
+  useEffect(() => {
+    if (!currentUser?._id) return;
+    const announceOnline = () => socket.emit('set_online', { userId: currentUser._id });
+    if (socket.connected) announceOnline();
+    socket.on('connect', announceOnline);
+    return () => socket.off('connect', announceOnline);
+  }, [currentUser?._id]);
+
 const checkSavedUser = async () => {
   try {
     const savedUser = await AsyncStorage.getItem('user');
@@ -606,6 +686,7 @@ const checkSavedUser = async () => {
 
 const handleLogout = async () => {
   try {
+    if (currentUser?._id) socket.emit('set_offline', { userId: currentUser._id });
     await AsyncStorage.removeItem('user');
     setCurrentUser(null);
   } catch (err) {
@@ -644,21 +725,19 @@ const handleLogout = async () => {
         <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: '#0F172A' }, headerTintColor: '#FFFFFF' }}>
           {currentUser ? (
             <>
-              <Stack.Screen name="Home" options={{ title: 'stonApp' }}>
+              <Stack.Screen name="Home" options={{ headerShown: false }}>
                 {(props) => (
-                  <HomeScreen 
-                    {...props} 
-                    currentUser={currentUser} 
-                    onDeleteAccount={handleDeleteAccount} 
-                    onLogout={handleLogout}
-                  />
+                  <HomeScreen {...props} currentUser={currentUser} onDeleteAccount={handleDeleteAccount} onLogout={handleLogout} onUserUpdated={async (u) => { await AsyncStorage.setItem('user', JSON.stringify(u)); setCurrentUser(u); }} />
                 )}
+              </Stack.Screen>
+              <Stack.Screen name="CreateCircle" options={{ title: 'Nuova Cerchia' }}>
+                {(props) => <CreateCircleScreen {...props} currentUser={currentUser} />}
               </Stack.Screen>
               <Stack.Screen name="Chat" options={({ route }) => ({ title: route.params?.recipient.username })}>
                 {(props) => <ChatScreen {...props} currentUser={currentUser} />}
               </Stack.Screen>
               <Stack.Screen name="CircleDetail" options={({ route }) => ({ title: route.params?.circle.name })}>
-                {(props) => <CircleDetailScreen {...props} currentUser={currentUser} />}
+                {(props) => <CircleDetailScreen {...props} currentUser={currentUser} onDeleteAccount={handleDeleteAccount} onLogout={handleLogout} onUserUpdated={async (u) => { await AsyncStorage.setItem('user', JSON.stringify(u)); setCurrentUser(u); }} />}
               </Stack.Screen>
             </>
           ) : (
@@ -724,6 +803,29 @@ const styles = StyleSheet.create({
   cancelBtn: { padding: 10 },
   confirmBtn: { backgroundColor: '#6366F1', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
   chatContainer: { flex: 1, backgroundColor: '#F1F5F9' },
+  onlineDot: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#10B981', marginLeft: 6 },
+  avatarOnlineDot: { position: 'absolute', right: 0, bottom: 0, width: 13, height: 13, borderRadius: 7, backgroundColor: '#10B981', borderWidth: 2, borderColor: '#FFF' },
+  avatarOnlineDotSmall: { width: 9, height: 9, borderRadius: 5, backgroundColor: '#10B981', marginLeft: 8 },
+  activeText: { fontSize: 11, color: '#10B981', fontWeight: '600', marginLeft: 4 },
+  gearButton: { padding: 7, marginLeft: 8 },
+  iconButton: { padding: 7, marginRight: 2 },
+  iconButtonText: { fontSize: 14, fontWeight: '700', color: '#475569' },
+  circleHeaderLarge: { flexDirection: 'row', alignItems: 'center', padding: 15, backgroundColor: '#FFF', borderBottomWidth: 1, borderBottomColor: '#E2E8F0' },
+  circleTitle: { fontSize: 19, fontWeight: 'bold', color: '#0F172A' },
+  circleUserName: { fontSize: 13, fontWeight: '600', color: '#334155', marginTop: 3 },
+  circleChatTitle: { fontSize: 14, fontWeight: '700', color: '#475569', paddingHorizontal: 15, paddingTop: 12 },
+  memberRoleBanner: { backgroundColor: '#EEF2FF', padding: 12, borderRadius: 10, marginBottom: 10 },
+  selectionCard: { backgroundColor: '#FFF', padding: 15, borderRadius: 12, marginBottom: 9, flexDirection: 'row', alignItems: 'center' },
+  addUserBtn: { backgroundColor: '#6366F1', padding: 14, borderRadius: 12, alignItems: 'center', marginBottom: 12 },
+  memberRow: { backgroundColor: '#FFF', padding: 12, borderRadius: 12, marginBottom: 8 },
+  memberAvatar: { width: 40, height: 40, borderRadius: 20, marginRight: 10 },
+  selectUserRow: { padding: 10, borderRadius: 10, marginBottom: 5, backgroundColor: '#F8FAFC' },
+  selectUserActive: { backgroundColor: '#EEF2FF', borderWidth: 1, borderColor: '#6366F1' },
+  inviteCard: { backgroundColor: '#F8FAFC', padding: 14, borderRadius: 12, marginBottom: 10 },
+  settingsRow: { padding: 15, borderWidth: 1, borderColor: '#E2E8F0', borderRadius: 10, marginBottom: 8, backgroundColor: '#FFF' },
+  rejectBtn: { borderWidth: 1, borderColor: '#FCA5A5', paddingHorizontal: 16, paddingVertical: 10, borderRadius: 10 },
+  messageSender: { fontSize: 11, fontWeight: '700', color: '#64748B', marginBottom: 3 },
+
   circleRoleHeader: { backgroundColor: '#EEF2FF', padding: 12, alignItems: 'center', borderBottomWidth: 1, borderBottomColor: '#E0E7FF' },
   circleRoleText: { fontSize: 14, color: '#334155' },
   sectionTitleStyle: { fontSize: 13, fontWeight: '700', color: '#64748B', textTransform: 'uppercase', margin: 15 },
