@@ -9,7 +9,12 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io } from 'socket.io-client';
 
-const API_BASE_URL = 'http://192.168.1.5:3001';
+//cabiaglio//
+//const API_BASE_URL = 'http://192.168.1.5:3001';
+
+//castronno//
+const API_BASE_URL = 'http://192.168.0.150:3001';
+
 
 
 const socket = io(API_BASE_URL, {
