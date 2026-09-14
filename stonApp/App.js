@@ -10,7 +10,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { io } from 'socket.io-client';
 
 //cabiaglio//
-//const API_BASE_URL = 'http://192.168.1.5:3001';
+//const API_BASE_URL = 'http://192.168.1.5:3001';//
 
 //castronno//
 const API_BASE_URL = 'http://192.168.0.150:3001';
@@ -256,10 +256,23 @@ function HomeScreen({ navigation, currentUser, onDeleteAccount, onLogout, onUser
     const onPresence = ({ userId, online }) => {
       setOnlineUsers(prev => ({ ...prev, [userId]: online }));
     };
-    const onInvitation = (invite) => {
-      setInvites(prev => [invite, ...prev.filter(i => i.circleId !== invite.circleId)]);
-      Alert.alert('Nuovo invito', `${invite.inviterName} ti ha invitato nella cerchia "${invite.circleName}".`);
-    };
+const onInvitation = (invite) => {
+  // L'evento Socket.IO viene trasmesso a tutti.
+  // Mostriamo l'invito solo all'utente destinatario.
+  if (String(invite.userId) !== String(currentUser._id)) {
+    return;
+  }
+
+  setInvites(prev => [
+    invite,
+    ...prev.filter(i => i.circleId !== invite.circleId)
+  ]);
+
+  Alert.alert(
+    'Nuovo invito',
+    `${invite.inviterName} ti ha invitato nella cerchia "${invite.circleName}".`
+  );
+};
 
     socket.on('presence_update', onPresence);
     socket.on('circle_invitation', onInvitation);

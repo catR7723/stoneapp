@@ -59,24 +59,98 @@ const messageSchema = new mongoose.Schema({
 const Message = mongoose.model('Message', messageSchema);
 
 // 3. Schema Cerchia (Circle)
+// 3. Schema Cerchia (Circle)
 const circleSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  type: { 
-    type: String, 
-    enum: ['COOPERATIVA', 'NEGOZIO', 'IMPRESA', 'GRUPPO'], 
-    default: 'COOPERATIVA' 
+  name: {
+    type: String,
+    required: true
   },
-  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+
+  type: {
+    type: String,
+    enum: [
+      'COOPERATIVA',
+      'IMPRESA',
+      'GRUPPO',
+      'SQUADRA',
+      'NEGOZIO',
+      'SCUOLA'
+    ],
+    default: 'COOPERATIVA'
+  },
+
+  adminId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+
   members: [{
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    role: { 
-      type: String, 
-      enum: ['AMMINISTRATORE', 'SOCIO_LAVORATORE', 'UTENTE', 'SOSTENITORE'],
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+
+    role: {
+      type: String,
+      enum: [
+        // Ruoli generali
+        'AMMINISTRATORE',
+        'UTENTE',
+        'SOSTENITORE',
+
+        // COOPERATIVA
+        'SOCIO_LAVORATORE',
+        'VOLONTARIO',
+        'DIPENDENTE',
+
+        // IMPRESA
+        'QUADRO',
+        'IMPIEGATO',
+        'OPERAIO',
+        'SERVIZI',
+
+        // GRUPPO
+        'RESPONSABILE',
+        'PARTECIPANTE',
+
+        // SQUADRA
+        'DIRIGENTE',
+        'ATLETA',
+        'GENITORE',
+
+        // NEGOZIO
+        'CLIENTE',
+        'RESPONSABILE_VENDITE',
+        'VENDITORE',
+
+        // SCUOLA
+        'GENITORE',
+        'STUDENTE',
+        'IMPIEGATO_SCOLASTICO',
+        'BIDELLO',
+        'VOLONTARIO_SCOLASTICO',
+        'PROFESSORE',
+        'PROFESSORESSA',
+        'MAESTRO',
+        'MAESTRA',
+        'DIRIGENZA'
+      ],
       default: 'UTENTE'
     },
-    status: { type: String, enum: ['PENDING', 'ACCEPTED'], default: 'ACCEPTED' }
+
+    status: {
+      type: String,
+      enum: ['PENDING', 'ACCEPTED'],
+      default: 'ACCEPTED'
+    }
   }],
-  createdAt: { type: Date, default: Date.now }
+
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
 });
 
 const Circle = mongoose.model('Circle', circleSchema);
