@@ -4,4 +4,6 @@ npx expo start
 cd stonApp-backend
 node server.js
 
-Tvlgalccllz 
+
+
+ip: ipconfig getifaddr en0
