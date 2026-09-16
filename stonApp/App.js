@@ -13,10 +13,10 @@ import { io } from 'socket.io-client';
 
 
 //cabiaglio//
-const API_BASE_URL = 'http://192.168.1.5:3001';
+//const API_BASE_URL = 'http://192.168.1.5:3001';//
 
 //castronno//
-//const API_BASE_URL = 'http://192.168.0.150:3001';//
+const API_BASE_URL = 'http://192.168.0.150:3001';
 
 
 
@@ -248,6 +248,7 @@ function HomeScreen({
   navigation,
   currentUser,
   unreadPrivateRooms,
+  unreadCircles,
   onDeleteAccount,
   onLogout,
   onUserUpdated
@@ -400,9 +401,28 @@ if (Array.isArray(dataCircles)) {
     )}
   </View>
 </TouchableOpacity>
-        <TouchableOpacity style={[styles.tabButton, activeTab === 'circles' && styles.tabButtonActive]} onPress={() => setActiveTab('circles')}>
-          <Text style={[styles.tabText, activeTab === 'circles' && styles.tabTextActive]}>Cerchie ({circles.length})</Text>
-        </TouchableOpacity>
+<TouchableOpacity
+  style={[styles.tabButton, activeTab === 'circles' && styles.tabButtonActive]}
+  onPress={() => setActiveTab('circles')}
+>
+  <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+    <Text style={[styles.tabText, activeTab === 'circles' && styles.tabTextActive]}>
+      Cerchie ({circles.length})
+    </Text>
+
+    {Object.keys(unreadCircles || {}).length > 0 && (
+      <View
+        style={{
+          width: 8,
+          height: 8,
+          borderRadius: 4,
+          backgroundColor: '#EC4899',
+          marginLeft: 6
+        }}
+      />
+    )}
+  </View>
+</TouchableOpacity>
       </View>
 
       <View style={{ flex: 1 }}>
@@ -412,7 +432,10 @@ if (Array.isArray(dataCircles)) {
             keyExtractor={item => item._id}
             ListEmptyComponent={<Text style={styles.emptyText}>Nessun contatto presente.</Text>}
             renderItem={({ item }) => (
-              <TouchableOpacity style={styles.chatCard} onPress={() => navigation.navigate('Chat', { recipient: item })}>
+              <TouchableOpacity 
+                style={styles.chatCard} 
+                onPress={() => 
+                navigation.navigate('Chat', { recipient: item })}>
                 <View>
                   <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
                   {onlineUsers[item._id] && <View style={styles.avatarOnlineDot} />}
@@ -433,13 +456,26 @@ if (Array.isArray(dataCircles)) {
               data={circles}
               keyExtractor={item => item._id}
               ListEmptyComponent={<Text style={styles.emptyText}>Non fai ancora parte di nessuna Cerchia.</Text>}
+              
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.circleCard} onPress={() => navigation.navigate('CircleDetail', { circle: item })}>
                   <View style={styles.circleIcon}><Text style={{ fontSize: 20 }}>🏢</Text></View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.chatName}>{item.name}</Text>
-                    <Text style={styles.circleTypeBadges}>{item.type}</Text>
-                  </View>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.chatName}>{item.name}</Text>
+                  <Text style={styles.circleTypeBadges}>{item.type}</Text>
+                </View>
+                  {unreadCircles?.[String(item._id)] && (
+                    <Image
+                      source={require('./assets/bustina-alata.png')}
+                      style={{
+                        width: 34,
+                        height: 24,
+                        resizeMode: 'contain'
+                      }}
+                    />
+                  )}
+
+
                 </TouchableOpacity>
               )}
             />
@@ -567,9 +603,20 @@ function SettingsModal({ visible, onClose, currentUser, onUserUpdated, onLogout,
 // -------------------------------------------------------------
 // SCHERMATA DETTAGLIO CERCHIA
 // -------------------------------------------------------------
-function CircleDetailScreen({ route, navigation, currentUser, onDeleteAccount, onLogout, onUserUpdated }) {
+function CircleDetailScreen({  route,
+  navigation,
+  currentUser,
+  unreadCircles,
+  onDeleteAccount,
+  onLogout,
+  onUserUpdated  }) {
   const { circle: initialCircle } = route.params;
   const [circle, setCircle] = useState(initialCircle);
+  console.log(
+  '🔎 CIRCLE DETAIL UNREAD:',
+  circle._id,
+  unreadCircles
+);
   const [tab, setTab] = useState('chat');
   const [onlineUsers, setOnlineUsers] = useState({});
   const [addVisible, setAddVisible] = useState(false);
@@ -842,11 +889,20 @@ function CircleDetailScreen({ route, navigation, currentUser, onDeleteAccount, o
             }}
             >
 
-              <View style={styles.circleIcon}>
-                <Text style={{ fontSize: 20 }}>
-                  💬
-                </Text>
-              </View>
+<View style={styles.circleIcon}>
+  {unreadCircles?.[String(circle._id)] ? (
+    <Image
+      source={require('./assets/bustina-alata.png')}
+      style={{
+        width: 42,
+        height: 32,
+        resizeMode: 'contain'
+      }}
+    />
+  ) : (
+    <Text style={{ fontSize: 20 }}>💬</Text>
+  )}
+</View>
 
               <View style={styles.chatInfo}>
 
@@ -1732,6 +1788,7 @@ const handleLogout = async () => {
                     currentUser={currentUser}
                     unreadPrivateRooms={unreadPrivateRooms}
                     onDeleteAccount={handleDeleteAccount}
+                    unreadCircles={unreadCircles}
                     onLogout={handleLogout}
                     onUserUpdated={async (u) => {
                       await AsyncStorage.setItem('user', JSON.stringify(u));
@@ -1776,7 +1833,19 @@ const handleLogout = async () => {
               </Stack.Screen>
 
               <Stack.Screen name="CircleDetail" options={({ route }) => ({ title: route.params?.circle.name })}>
-                {(props) => <CircleDetailScreen {...props} currentUser={currentUser} onDeleteAccount={handleDeleteAccount} onLogout={handleLogout} onUserUpdated={async (u) => { await AsyncStorage.setItem('user', JSON.stringify(u)); setCurrentUser(u); }} />}
+                {(props) => (
+  <CircleDetailScreen
+    {...props}
+    currentUser={currentUser}
+    unreadCircles={unreadCircles}
+    onDeleteAccount={handleDeleteAccount}
+    onLogout={handleLogout}
+    onUserUpdated={async (u) => {
+      await AsyncStorage.setItem('user', JSON.stringify(u));
+      setCurrentUser(u);
+    }}
+  />
+)}
               </Stack.Screen>
             </>
           ) : (
