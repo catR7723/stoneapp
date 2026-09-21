@@ -13,10 +13,10 @@ import { io } from 'socket.io-client';
 
 
 //cabiaglio//
-//const API_BASE_URL = 'http://192.168.1.5:3001';//
+const API_BASE_URL = 'http://192.168.1.9:3001';
 
 //castronno//
-const API_BASE_URL = 'http://192.168.0.150:3001';
+//const API_BASE_URL = 'http://192.168.0.150:3001';//
 
 
 
@@ -1293,42 +1293,51 @@ function ChatScreen({
   const roomId = getRoomId(currentUser._id, recipient._id);
   const isFocused = useIsFocused();
 
-  useEffect(() => {
-    if (!isFocused) {
-      onSetActivePrivateRoom(null);
-      return;
-    }
-
-    // Questa è la chat attualmente visualizzata
+// Tiene traccia della chat privata realmente visibile
+useEffect(() => {
+  if (isFocused) {
+    console.log('🟢 CHAT PRIVATA ATTIVA:', roomId);
     onSetActivePrivateRoom(roomId);
+  } else {
+    console.log('⚪ CHAT PRIVATA NON ATTIVA');
+    onSetActivePrivateRoom(null);
+  }
 
-    // Quando apro una chat, la considero letta
-    onClearUnread(roomId);
+  return () => {
+    onSetActivePrivateRoom(null);
+  };
+}, [isFocused, roomId, onSetActivePrivateRoom]);
 
-    socket.emit('join_room', roomId);
 
-    const handleLoadHistory = (history) => {
-      setMessages(history);
-    };
+// Gestisce i messaggi solo mentre questa chat è visibile
+useEffect(() => {
+  if (!isFocused) return;
 
-    const handleReceiveMessage = (newMessage) => {
-      setMessages((prev) => [...prev, newMessage]);
-    };
+  // Quando apro la chat, la considero letta
+  onClearUnread(roomId);
 
-    socket.on('load_history', handleLoadHistory);
-    socket.on('receive_message', handleReceiveMessage);
+  socket.emit('join_room', roomId);
 
-    return () => {
-      socket.off('load_history', handleLoadHistory);
-      socket.off('receive_message', handleReceiveMessage);
-      onSetActivePrivateRoom(null);
-    };
-  }, [
-    isFocused,
-    roomId,
-    onClearUnread,
-    onSetActivePrivateRoom
-  ]);
+  const handleLoadHistory = (history) => {
+    setMessages(history);
+  };
+
+  const handleReceiveMessage = (newMessage) => {
+    if (newMessage.roomId !== roomId) return;
+
+    setMessages(prev => [...prev, newMessage]);
+  };
+
+  socket.on('load_history', handleLoadHistory);
+  socket.on('receive_message', handleReceiveMessage);
+
+  return () => {
+    console.log('🔴 CHIUDO CHAT PRIVATA:', roomId);
+
+    socket.off('load_history', handleLoadHistory);
+    socket.off('receive_message', handleReceiveMessage);
+  };
+}, [isFocused, roomId]);
 
 
 
@@ -1620,6 +1629,8 @@ useEffect(() => {
   if (!currentUser?._id) return;
 
   const handleIncomingPrivateMessage = (newMessage) => {
+    console.log('📩 MESSAGGIO PRIVATO RICEVUTO:', newMessage);
+console.log('📍 CHAT PRIVATA ATTIVA:', activePrivateRoomId);
     // Ignora i messaggi inviati da me
     if (String(newMessage.senderId) === String(currentUser._id)) {
       return;
