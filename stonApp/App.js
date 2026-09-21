@@ -13,10 +13,14 @@ import { io } from 'socket.io-client';
 
 
 //cabiaglio//
-const API_BASE_URL = 'http://192.168.1.9:3001';
+//const API_BASE_URL = 'http://192.168.1.9:3001';//
 
 //castronno//
 //const API_BASE_URL = 'http://192.168.0.150:3001';//
+
+//iphone//
+const API_BASE_URL = 'http://172.20.10.5:3001';
+
 
 
 
@@ -431,21 +435,51 @@ if (Array.isArray(dataCircles)) {
             data={users}
             keyExtractor={item => item._id}
             ListEmptyComponent={<Text style={styles.emptyText}>Nessun contatto presente.</Text>}
-            renderItem={({ item }) => (
-              <TouchableOpacity 
-                style={styles.chatCard} 
-                onPress={() => 
-                navigation.navigate('Chat', { recipient: item })}>
-                <View>
-                  <Image source={{ uri: item.avatar }} style={styles.chatAvatar} />
-                  {onlineUsers[item._id] && <View style={styles.avatarOnlineDot} />}
-                </View>
-                <View style={styles.chatInfo}>
-                  <Text style={styles.chatName}>{item.username}</Text>
-                  <Text style={styles.lastMessage}>{onlineUsers[item._id] ? '● Online' : 'Offline'}</Text>
-                </View>
-              </TouchableOpacity>
-            )}
+renderItem={({ item }) => {
+  const roomId = getRoomId(currentUser._id, item._id);
+  const hasUnread = unreadPrivateRooms?.[roomId];
+
+  return (
+    <TouchableOpacity
+      style={styles.chatCard}
+      onPress={() =>
+        navigation.navigate('Chat', { recipient: item })
+      }
+    >
+      <View>
+        <Image
+          source={{ uri: item.avatar }}
+          style={styles.chatAvatar}
+        />
+
+        {onlineUsers[item._id] && (
+          <View style={styles.avatarOnlineDot} />
+        )}
+      </View>
+
+      <View style={styles.chatInfo}>
+        <Text style={styles.chatName}>
+          {item.username}
+        </Text>
+
+        <Text style={styles.lastMessage}>
+          {onlineUsers[item._id] ? '● Online' : 'Offline'}
+        </Text>
+      </View>
+
+      {hasUnread && (
+        <Image
+          source={require('./assets/bustina-alata.png')}
+          style={{
+            width: 42,
+            height: 32,
+            resizeMode: 'contain'
+          }}
+        />
+      )}
+    </TouchableOpacity>
+  );
+}}
           />
         ) : (
           <View style={{ flex: 1 }}>
@@ -1298,10 +1332,14 @@ useEffect(() => {
   if (isFocused) {
     console.log('🟢 CHAT PRIVATA ATTIVA:', roomId);
     onSetActivePrivateRoom(roomId);
-  } else {
-    console.log('⚪ CHAT PRIVATA NON ATTIVA');
-    onSetActivePrivateRoom(null);
-  }
+} else {
+  console.log(
+    '⚪ CHAT PRIVATA NON ATTIVA:',
+    roomId
+  );
+
+  onSetActivePrivateRoom(null);
+}
 
   return () => {
     onSetActivePrivateRoom(null);
@@ -1648,12 +1686,22 @@ console.log('📍 CHAT PRIVATA ATTIVA:', activePrivateRoomId);
       [newMessage.roomId]: true
     }));
   };
+console.log(
+  '🧩 ATTIVO LISTENER PRIVATO GLOBALE:',
+  activePrivateRoomId
+);
 
-  socket.on('receive_message', handleIncomingPrivateMessage);
+socket.on('receive_message', handleIncomingPrivateMessage);
 
-  return () => {
-    socket.off('receive_message', handleIncomingPrivateMessage);
-  };
+return () => {
+  console.log(
+    '🧹 RIMUOVO LISTENER PRIVATO GLOBALE:',
+    activePrivateRoomId
+  );
+
+  socket.off('receive_message', handleIncomingPrivateMessage);
+};
+  
 }, [currentUser?._id, activePrivateRoomId]);
 
 useEffect(() => {
