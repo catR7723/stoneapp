@@ -16,10 +16,10 @@ import { io } from 'socket.io-client';
 //const API_BASE_URL = 'http://192.168.1.9:3001';//
 
 //castronno//
-//const API_BASE_URL = 'http://192.168.0.150:3001';//
+const API_BASE_URL = 'http://192.168.0.150:3001';
 
 //iphone//
-const API_BASE_URL = 'http://172.20.10.5:3001';
+//const API_BASE_URL = 'http://172.20.10.5:3001';//
 
 
 
