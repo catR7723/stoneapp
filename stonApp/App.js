@@ -9,14 +9,16 @@ import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 import { io } from 'socket.io-client';
+import { CircleLogo, LogoPicker } from './components/CircleLogo';
+import { addUnreadOrigin } from './utils/chatOrigins';
 //import { Audio } from 'expo-av';//
 
 
 //cabiaglio//
-//const API_BASE_URL = 'http://192.168.1.9:3001';//
+const API_BASE_URL = 'http://192.168.1.9:3001';
 
 //castronno//
-const API_BASE_URL = 'http://192.168.0.150:3001';
+//const API_BASE_URL = 'http://192.168.0.150:3001';//
 
 //iphone//
 //const API_BASE_URL = 'http://172.20.10.5:3001';//
@@ -265,10 +267,12 @@ function HomeScreen({
   const [loading, setLoading] = useState(true);
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [inviteVisible, setInviteVisible] = useState(false);
+  const isFocused = useIsFocused();
+  useEffect(() => {
+    if (isFocused) { fetchUsersAndCircles(); fetchInvites(); }
+  }, [isFocused, currentUser._id]);
 
   useEffect(() => {
-    fetchUsersAndCircles();
-    fetchInvites();
 
     const onPresence = ({ userId, online }) => {
       setOnlineUsers(prev => ({ ...prev, [userId]: online }));
@@ -443,7 +447,7 @@ renderItem={({ item }) => {
     <TouchableOpacity
       style={styles.chatCard}
       onPress={() =>
-        navigation.navigate('Chat', { recipient: item })
+        navigation.navigate('Chat', { recipient: item, sourceCircle: null })
       }
     >
       <View>
@@ -468,14 +472,13 @@ renderItem={({ item }) => {
       </View>
 
       {hasUnread && (
-        <Image
-          source={require('./assets/bustina-alata.png')}
-          style={{
-            width: 42,
-            height: 32,
-            resizeMode: 'contain'
-          }}
-        />
+        <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 110, gap: 5 }}>
+          {Object.entries(typeof hasUnread === 'object' ? hasUnread : { direct: null }).map(([key, origin]) => origin ? (
+            <TouchableOpacity key={key} accessibilityLabel={`Messaggi da ${origin.name}`} onPress={() => navigation.navigate('Chat', { recipient: item, sourceCircle: origin })}>
+              <CircleLogo logo={origin.logo} type={origin.type} size={32} label={`Messaggi da ${origin.name}`} />
+            </TouchableOpacity>
+          ) : <Image key={key} accessibilityLabel="Messaggi diretti" source={require('./assets/bustina-alata.png')} style={{ width: 38, height: 32, resizeMode: 'contain' }} />)}
+        </View>
       )}
     </TouchableOpacity>
   );
@@ -493,7 +496,7 @@ renderItem={({ item }) => {
               
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.circleCard} onPress={() => navigation.navigate('CircleDetail', { circle: item })}>
-                  <View style={styles.circleIcon}><Text style={{ fontSize: 20 }}>🏢</Text></View>
+                  <View style={styles.circleIcon}><CircleLogo logo={item.logo} type={item.type} label={item.name} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.chatName}>{item.name}</Text>
                   <Text style={styles.circleTypeBadges}>{item.type}</Text>
@@ -543,6 +546,8 @@ renderItem={({ item }) => {
 
 function CreateCircleScreen({ navigation, currentUser }) {
   const [circleName, setCircleName] = useState('');
+  const [logo, setLogo] = useState({ kind: 'preset', value: 'community' });
+  const [logoBusy, setLogoBusy] = useState(false);
   const [selectedType, setSelectedType] = useState('COOPERATIVA');
   const [users, setUsers] = useState([]);
   const [pendingMembers, setPendingMembers] = useState([]);
@@ -567,10 +572,11 @@ function CreateCircleScreen({ navigation, currentUser }) {
   const removeMember = (userId) => setPendingMembers(prev => prev.filter(m => m.userId !== userId));
 
   const handleCreate = async () => {
+    if (loading || logoBusy) return;
     if (!circleName.trim()) return Alert.alert('Errore', 'Inserisci un nome per la Cerchia');
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/circles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: circleName.trim(), type: selectedType, adminId: currentUser._id, initialMembers: pendingMembers.map(m => ({ userId: m.userId, role: m.role })) }) });
+      const res = await fetch(`${API_BASE_URL}/api/circles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: circleName.trim(), logo, type: selectedType, adminId: currentUser._id, initialMembers: pendingMembers.map(m => ({ userId: m.userId, role: m.role })) }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Impossibile creare la Cerchia');
       Alert.alert('StoneApp', pendingMembers.length ? 'Cerchia creata e inviti inviati.' : 'Cerchia creata.');
@@ -582,11 +588,12 @@ function CreateCircleScreen({ navigation, currentUser }) {
     <FlatList data={pendingMembers} keyExtractor={item => item.userId} contentContainerStyle={{ padding: 20 }} ListHeaderComponent={<View>
       <Text style={styles.modalTitle}>Crea Nuova Cerchia</Text>
       <TextInput style={styles.authInput} placeholder="Nome Cerchia" value={circleName} onChangeText={setCircleName} />
+      <LogoPicker value={logo} onChange={setLogo} busy={logoBusy || loading} onBusyChange={setLogoBusy} />
       <Text style={styles.subSectionTitle}>Tipologia:</Text>
       <View style={styles.typeSelectorRow}>{Object.entries(CIRCLE_CONFIG).map(([type, cfg]) => <TouchableOpacity key={type} style={[styles.typeChip, selectedType === type && styles.typeChipActive]} onPress={() => { setSelectedType(type); setPendingMembers([]); }}><Text style={[styles.typeChipText, selectedType === type && styles.typeChipTextActive]}>{cfg.label}</Text></TouchableOpacity>)}</View>
       <TouchableOpacity style={styles.createCircleBtn} onPress={openAdd}><Text style={styles.createCircleBtnText}>+ Inserisci utente</Text></TouchableOpacity>
       <Text style={styles.subSectionTitle}>Utenti da invitare:</Text>
-    </View>} ListEmptyComponent={<Text style={styles.emptyText}>Nessun utente inserito.</Text>} renderItem={({ item }) => <View style={styles.memberRow}><View style={{ flex: 1 }}><Text style={styles.chatName}>{item.username}</Text><Text style={styles.lastMessage}>{roleLabel(selectedType, item.role)}</Text></View><TouchableOpacity onPress={() => removeMember(item.userId)}><Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Rimuovi</Text></TouchableOpacity></View>} ListFooterComponent={<TouchableOpacity style={styles.confirmBtn} onPress={handleCreate} disabled={loading}><Text style={{ color: '#FFF', fontWeight: 'bold' }}>{loading ? 'Creazione...' : 'CREA CERCHIA'}</Text></TouchableOpacity>} />
+    </View>} ListEmptyComponent={<Text style={styles.emptyText}>Nessun utente inserito.</Text>} renderItem={({ item }) => <View style={styles.memberRow}><View style={{ flex: 1 }}><Text style={styles.chatName}>{item.username}</Text><Text style={styles.lastMessage}>{roleLabel(selectedType, item.role)}</Text></View><TouchableOpacity onPress={() => removeMember(item.userId)}><Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Rimuovi</Text></TouchableOpacity></View>} ListFooterComponent={<TouchableOpacity style={styles.confirmBtn} onPress={handleCreate} disabled={loading || logoBusy}><Text style={{ color: '#FFF', fontWeight: 'bold' }}>{loading ? 'Creazione...' : 'CREA CERCHIA'}</Text></TouchableOpacity>} />
 
     <Modal visible={addVisible} transparent animationType="slide"><View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>Inserisci utente</Text><FlatList data={users.filter(u => !pendingMembers.some(m => m.userId === u._id))} keyExtractor={u => u._id} style={{ maxHeight: 260 }} renderItem={({ item }) => <TouchableOpacity style={[styles.selectUserRow, selectedUser?._id === item._id && styles.selectUserActive]} onPress={() => setSelectedUser(item)}><Text style={styles.chatName}>{item.username}</Text></TouchableOpacity>} /><Text style={styles.subSectionTitle}>Ruolo:</Text><View style={styles.typeSelectorRow}>{roles.map(([key, cfg]) => <TouchableOpacity key={key} style={[styles.typeChip, selectedRole === key && styles.typeChipActive]} onPress={() => setSelectedRole(key)}><Text style={[styles.typeChipText, selectedRole === key && styles.typeChipTextActive]}>{cfg.label}</Text></TouchableOpacity>)}</View><View style={styles.modalActions}><TouchableOpacity style={styles.cancelBtn} onPress={() => setAddVisible(false)}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Annulla</Text></TouchableOpacity><TouchableOpacity style={styles.confirmBtn} onPress={addMember}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>Inserisci</Text></TouchableOpacity></View></View></View></Modal>
   </SafeAreaView>;
@@ -805,6 +812,7 @@ function CircleDetailScreen({  route,
       {/* HEADER CERCHIA */}
 
       <View style={styles.circleHeaderLarge}>
+        <View style={{ marginRight: 12 }}><CircleLogo logo={circle.logo} type={circle.type} label={circle.name} /></View>
 
         <View style={{ flex: 1 }}>
 
@@ -976,7 +984,7 @@ function CircleDetailScreen({  route,
                 onPress={() =>
                   navigation.navigate(
                     'Chat',
-                    { recipient: u }
+                    { recipient: u, sourceCircle: { _id: circle._id, name: circle.name, type: circle.type, logo: circle.logo } }
                   )
                 }
               >
@@ -1318,7 +1326,8 @@ function ChatScreen({
   onClearUnread,
   onSetActivePrivateRoom
 }) {
-  const { recipient } = route.params;
+  const { recipient, sourceCircle = null } = route.params;
+  const [sending, setSending] = useState(false);
 
   const [messages, setMessages] = useState([]);
   const [inputText, setInputText] = useState('');
@@ -1354,7 +1363,7 @@ useEffect(() => {
   // Quando apro la chat, la considero letta
   onClearUnread(roomId);
 
-  socket.emit('join_room', roomId);
+
 
   const handleLoadHistory = (history) => {
     setMessages(history);
@@ -1363,15 +1372,22 @@ useEffect(() => {
   const handleReceiveMessage = (newMessage) => {
     if (newMessage.roomId !== roomId) return;
 
-    setMessages(prev => [...prev, newMessage]);
+    setMessages(prev => prev.some(message => message._id === newMessage._id) ? prev : [...prev, newMessage]);
   };
 
   socket.on('load_history', handleLoadHistory);
   socket.on('receive_message', handleReceiveMessage);
+  const requestHistory = () => {
+    socket.emit('set_online', { userId: currentUser._id });
+    socket.emit('join_room', roomId);
+  };
+  socket.on('connect', requestHistory);
+  requestHistory();
 
   return () => {
     console.log('🔴 CHIUDO CHAT PRIVATA:', roomId);
 
+    socket.off('connect', requestHistory);
     socket.off('load_history', handleLoadHistory);
     socket.off('receive_message', handleReceiveMessage);
   };
@@ -1381,20 +1397,30 @@ useEffect(() => {
 
 
   const sendMessage = () => {
-    if (inputText.trim().length === 0) return;
+    if (sending || inputText.trim().length === 0) return;
+    if (!socket.connected) return Alert.alert('Connessione', 'Attendi la riconnessione prima di inviare.');
     const messageData = {
       roomId,
+      sourceCircleId: sourceCircle?._id || null,
       text: inputText,
       senderId: currentUser._id,
       senderName: currentUser.username,
       time: new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
     };
-    socket.emit('send_message', messageData);
-    setInputText('');
+    setSending(true);
+    socket.timeout(10000).emit('send_message', messageData, (error, result) => {
+      setSending(false);
+      if (error || !result?.ok) return Alert.alert('Invio', result?.error || 'Conferma non ricevuta: controlla la chat prima di riprovare.');
+      setInputText(previous => previous === messageData.text ? '' : previous);
+    });
   };
 
   return (
     <SafeAreaView style={styles.chatContainer} edges={['bottom']}>
+      {sourceCircle && <View style={{ flexDirection: 'row', alignItems: 'center', padding: 10, gap: 8, backgroundColor: '#EEF2FF' }}>
+        <CircleLogo logo={sourceCircle.logo} type={sourceCircle.type} size={28} />
+        <Text style={{ flex: 1 }}>Messaggio privato da {sourceCircle.name}</Text>
+      </View>}
       <FlatList
         data={messages}
         keyExtractor={(item, index) => item._id || index.toString()}
@@ -1402,6 +1428,7 @@ useEffect(() => {
           const isMyMessage = item.senderId === currentUser._id;
           return (
             <View style={[styles.messageBubble, isMyMessage ? styles.myMessage : styles.otherMessage]}>
+              {!!item.sourceCircleName && <Text style={{ fontSize: 11, marginBottom: 4, color: isMyMessage ? '#E0E7FF' : '#4F46E5' }}>{item.sourceCircleName}</Text>}
               <Text style={[styles.messageText, isMyMessage && { color: '#FFFFFF' }]}>{item.text}</Text>
               <Text style={[styles.messageTime, isMyMessage && { color: '#E0E7FF' }]}>{item.time}</Text>
             </View>
@@ -1418,8 +1445,8 @@ useEffect(() => {
             value={inputText}
             onChangeText={setInputText}
           />
-          <TouchableOpacity style={styles.sendButton} onPress={sendMessage}>
-            <Text style={styles.sendButtonText}>Invia</Text>
+          <TouchableOpacity style={styles.sendButton} onPress={sendMessage} disabled={sending}>
+            <Text style={styles.sendButtonText}>{sending ? 'Invio…' : 'Invia'}</Text>
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
@@ -1641,6 +1668,12 @@ export default function App() {
 
   const [unreadCircles, setUnreadCircles] = useState({});
   const [activeCircleId, setActiveCircleId] = useState(null);
+  useEffect(() => {
+    setUnreadPrivateRooms({});
+    setUnreadCircles({});
+    setActivePrivateRoomId(null);
+    setActiveCircleId(null);
+  }, [currentUser?._id]);
 
   const clearUnreadPrivateRoom = (roomId) => {
     setUnreadPrivateRooms(prev => {
@@ -1667,7 +1700,7 @@ useEffect(() => {
   if (!currentUser?._id) return;
 
   const handleIncomingPrivateMessage = (newMessage) => {
-    console.log('📩 MESSAGGIO PRIVATO RICEVUTO:', newMessage);
+    console.log('📩 MESSAGGIO PRIVATO RICEVUTO:', newMessage._id);
 console.log('📍 CHAT PRIVATA ATTIVA:', activePrivateRoomId);
     // Ignora i messaggi inviati da me
     if (String(newMessage.senderId) === String(currentUser._id)) {
@@ -1683,7 +1716,7 @@ console.log('📍 CHAT PRIVATA ATTIVA:', activePrivateRoomId);
     // Altrimenti quella chat diventa non letta.
     setUnreadPrivateRooms(prev => ({
       ...prev,
-      [newMessage.roomId]: true
+      [newMessage.roomId]: addUnreadOrigin(prev[newMessage.roomId], newMessage)
     }));
   };
 console.log(

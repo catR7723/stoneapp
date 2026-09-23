@@ -4,6 +4,8 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
+const { normalizeLogo } = require('./circleLogos');
+const { registerPrivateMessaging } = require('./privateMessages');
 
 const app = express();
 const server = http.createServer(app);
@@ -15,7 +17,7 @@ const io = new Server(server, {
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
 
 // Presenza online: più socket possono appartenere allo stesso utente.
 const onlineUsers = new Map();
@@ -50,6 +52,8 @@ const User = mongoose.model('User', userSchema);
 const messageSchema = new mongoose.Schema({
   roomId: { type: String, required: true },
   senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  sourceCircleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle', default: null },
+  sourceCircleName: { type: String, default: '' },
   senderName: String,
   text: { type: String, required: true },
   time: String,
@@ -61,6 +65,7 @@ const Message = mongoose.model('Message', messageSchema);
 // 3. Schema Cerchia (Circle)
 // 3. Schema Cerchia (Circle)
 const circleSchema = new mongoose.Schema({
+  logo: { kind: { type: String, enum: ['preset', 'image'] }, value: String },
   name: {
     type: String,
     required: true
@@ -331,6 +336,9 @@ app.delete('/api/users/:userId', async (req, res) => {
 app.post('/api/circles', async (req, res) => {
   try {
     const { name, type, adminId, initialMembers } = req.body;
+    let logo;
+    try { logo = normalizeLogo(req.body.logo, type); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
 
     const admin = await User.findById(adminId);
 
@@ -366,6 +374,7 @@ app.post('/api/circles', async (req, res) => {
     }
 
     const newCircle = new Circle({
+      logo,
       name,
       type: type || 'COOPERATIVA',
       adminId,
@@ -535,30 +544,33 @@ app.get('/api/circles/:circleId/documents/:userId', async (req, res) => {
 io.on('connection', (socket) => {
   console.log(`🔌 Utente connesso: ${socket.id}`);
 
+  const clearPresence = () => {
+    const id = socket.data.userId;
+    if (id) {
+      const count = (onlineUsers.get(id) || 1) - 1;
+      if (count <= 0) { onlineUsers.delete(id); broadcastPresence(id, false); }
+      else onlineUsers.set(id, count);
+    }
+    socket.data.userId = null;
+    for (const room of socket.rooms) if (room !== socket.id) socket.leave(room);
+  };
   socket.on('set_online', ({ userId }) => {
-    if (!userId) return;
+    if (!userId || !mongoose.isValidObjectId(userId)) return;
     const id = String(userId);
-    const count = (onlineUsers.get(id) || 0) + 1;
-    onlineUsers.set(id, count);
+    if (socket.data.userId !== id) {
+      clearPresence();
+      onlineUsers.set(id, (onlineUsers.get(id) || 0) + 1);
+      socket.data.userId = id;
+    }
+    socket.join(`user_${id}`);
     broadcastPresence(id, true);
-    socket.data.userId = id;
     socket.emit('online_users', Array.from(onlineUsers.keys()));
   });
-
-  socket.on('set_offline', ({ userId }) => {
-    if (!userId) return;
-    const id = String(userId);
-    onlineUsers.delete(id);
-    broadcastPresence(id, false);
-  });
+  socket.on('set_offline', () => clearPresence());
 
   socket.on('get_online_users', () => socket.emit('online_users', Array.from(onlineUsers.keys())));
 
-  socket.on('join_room', async (roomId) => {
-    socket.join(roomId);
-    try { socket.emit('load_history', await Message.find({ roomId }).sort({ createdAt: 1 })); }
-    catch (err) { console.error('Errore nel caricamento della cronologia:', err); }
-  });
+  registerPrivateMessaging({ socket, io, Circle, Message });
 
   socket.on('join_circle', async ({ circleId, userId }) => {
     try {
@@ -568,14 +580,6 @@ io.on('connection', (socket) => {
       socket.join(roomId);
       socket.emit('circle_history', await Message.find({ roomId }).sort({ createdAt: 1 }));
     } catch (err) { console.error('Errore ingresso cerchia:', err); }
-  });
-
-  socket.on('send_message', async (data) => {
-    try {
-      const newMessage = new Message({ roomId: data.roomId, senderId: data.senderId, senderName: data.senderName, text: data.text, time: data.time });
-      await newMessage.save();
-      io.to(data.roomId).emit('receive_message', newMessage);
-    } catch (err) { console.error('Errore nell’invio del messaggio:', err); }
   });
 
   socket.on('send_circle_message', async (data) => {
