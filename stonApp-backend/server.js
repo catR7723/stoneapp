@@ -6,13 +6,16 @@ const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
 const { normalizeLogo } = require('./circleLogos');
 const { registerPrivateMessaging } = require('./privateMessages');
+const { createCircleLifecycle } = require('./circleLifecycle');
+const { createCircleLogoUpdate } = require('./circleLogoUpdate');
+const { normalizeProfileAvatar } = require('./profileAvatar');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
 
@@ -291,7 +294,10 @@ app.put('/api/users/:userId', async (req, res) => {
       if (exists) return res.status(400).json({ error: 'Email già utilizzata' });
       user.email = clean;
     }
-    if (avatar !== undefined) user.avatar = String(avatar).trim();
+    if (avatar !== undefined) {
+      try { user.avatar = normalizeProfileAvatar(avatar); }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+    }
     if (password !== undefined) {
       if (!currentPassword) return res.status(400).json({ error: 'Inserisci la password attuale' });
       const ok = await bcrypt.compare(currentPassword, user.password);
@@ -300,6 +306,7 @@ app.put('/api/users/:userId', async (req, res) => {
       user.password = await bcrypt.hash(String(password), 10);
     }
     await user.save();
+    if (avatar !== undefined) io.emit('profile_avatar_updated', { userId: String(user._id), avatar: user.avatar });
     res.json({ _id: user._id, username: user.username, email: user.email, avatar: user.avatar });
   } catch (error) {
     if (error.code === 11000) return res.status(400).json({ error: 'Email o Username già utilizzati' });
@@ -421,6 +428,11 @@ app.post('/api/circles', async (req, res) => {
     });
   }
 });
+
+const circleLifecycle = createCircleLifecycle({ mongoose, User, Circle, Message, Announcement, DocumentModel, WorkShift, bcrypt, io });
+app.put('/api/circles/:circleId/logo', createCircleLogoUpdate({ User, Circle, bcrypt, io }));
+app.delete('/api/circles/:circleId', circleLifecycle.remove);
+app.post('/api/circles/:circleId/leave', circleLifecycle.leave);
 
 // Recupera Cerchie dell'Utente
 app.get('/api/circles/user/:userId', async (req, res) => {
@@ -565,6 +577,7 @@ io.on('connection', (socket) => {
     socket.join(`user_${id}`);
     broadcastPresence(id, true);
     socket.emit('online_users', Array.from(onlineUsers.keys()));
+
   });
   socket.on('set_offline', () => clearPresence());
 
@@ -572,24 +585,27 @@ io.on('connection', (socket) => {
 
   registerPrivateMessaging({ socket, io, Circle, Message });
 
-  socket.on('join_circle', async ({ circleId, userId }) => {
+  socket.on('join_circle', async ({ circleId, userId, history = true }) => {
     try {
+      if (String(userId) !== socket.data.userId) return;
       const circle = await Circle.findOne({ _id: circleId, members: { $elemMatch: { userId, status: 'ACCEPTED' } } });
       if (!circle) return socket.emit('circle_error', { error: 'Non sei membro della cerchia' });
       const roomId = `circle_${circleId}`;
       socket.join(roomId);
-      socket.emit('circle_history', await Message.find({ roomId }).sort({ createdAt: 1 }));
+      if (history) socket.emit('circle_history', { circleId: String(circleId), messages: await Message.find({ roomId }).sort({ createdAt: 1 }) });
     } catch (err) { console.error('Errore ingresso cerchia:', err); }
   });
 
   socket.on('send_circle_message', async (data) => {
     try {
+      if (String(data.senderId) !== socket.data.userId) return;
       const circle = await Circle.findOne({ _id: data.circleId, members: { $elemMatch: { userId: data.senderId, status: 'ACCEPTED' } } });
       if (!circle) return socket.emit('circle_error', { error: 'Non sei autorizzato a scrivere in questa cerchia' });
       const roomId = `circle_${data.circleId}`;
       const newMessage = new Message({ roomId, senderId: data.senderId, senderName: data.senderName, text: data.text, time: data.time });
       await newMessage.save();
-      io.to(roomId).emit('circle_message', newMessage);
+      const recipients = circle.members.filter(member => member.status === 'ACCEPTED').map(member => `user_${member.userId}`);
+      io.to(recipients).emit('circle_message', newMessage);
     } catch (err) { console.error('Errore messaggio cerchia:', err); }
   });
 

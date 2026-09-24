@@ -1,24 +1,30 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { 
   StyleSheet, Text, View, TextInput, TouchableOpacity, FlatList, 
   Image, KeyboardAvoidingView, Platform, ActivityIndicator, Alert, BackHandler, Modal 
 } from 'react-native';
-import { NavigationContainer, useIsFocused } from '@react-navigation/native';
+import { NavigationContainer, useIsFocused, useNavigationContainerRef } from '@react-navigation/native';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as ImagePicker from 'expo-image-picker';
+import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
 import { io } from 'socket.io-client';
 import { CircleLogo, LogoPicker } from './components/CircleLogo';
 import { addUnreadOrigin } from './utils/chatOrigins';
+import { privateAlertEvent } from './utils/privateAlertScope';
+import { HomeAlertSettings } from './components/HomeAlertSettings';
+import { useCircleTools, useCircleToolsContext, CircleToolsContext } from './hooks/useCircleTools';
+import { CircleSettingsModal, CircleSettingsButton, CircleSurface, CircleUnreadNotice } from './components/CircleSettings';
 //import { Audio } from 'expo-av';//
 
 
 //cabiaglio//
-const API_BASE_URL = 'http://192.168.1.9:3001';
+//const API_BASE_URL = 'http://192.168.1.9:3001';//
 
 //castronno//
-//const API_BASE_URL = 'http://192.168.0.150:3001';//
+const API_BASE_URL = 'http://192.168.0.150:3001';
 
 //iphone//
 //const API_BASE_URL = 'http://172.20.10.5:3001';//
@@ -252,6 +258,7 @@ function RegisterScreen({ navigation, onLoginSuccess }) {
 // -------------------------------------------------------------
 function HomeScreen({
   navigation,
+  route,
   currentUser,
   unreadPrivateRooms,
   unreadCircles,
@@ -259,6 +266,7 @@ function HomeScreen({
   onLogout,
   onUserUpdated
 }) {
+  const tools = useCircleToolsContext();
   const [activeTab, setActiveTab] = useState('chats');
   const [users, setUsers] = useState([]);
   const [circles, setCircles] = useState([]);
@@ -268,6 +276,12 @@ function HomeScreen({
   const [settingsVisible, setSettingsVisible] = useState(false);
   const [inviteVisible, setInviteVisible] = useState(false);
   const isFocused = useIsFocused();
+  useEffect(() => {
+    if (isFocused && route.params?.openTab) {
+      setActiveTab(route.params.openTab);
+      navigation.setParams({ openTab: null });
+    }
+  }, [isFocused, route.params?.openTab, navigation]);
   useEffect(() => {
     if (isFocused) { fetchUsersAndCircles(); fetchInvites(); }
   }, [isFocused, currentUser._id]);
@@ -307,6 +321,14 @@ const onInvitation = (invite) => {
   socket.on('presence_update', onPresence);
   socket.on('online_users', onOnlineUsers);
   socket.on('circle_invitation', onInvitation);
+  const refreshMemberships = () => { fetchUsersAndCircles(); fetchInvites(); };
+  socket.on('connect', refreshMemberships);
+  socket.on('circle_removed', refreshMemberships);
+  socket.on('circle_members_changed', refreshMemberships);
+  const onProfileAvatarUpdated = ({ userId, avatar }) => {
+    setUsers(previous => previous.map(user => String(user._id) === String(userId) ? { ...user, avatar } : user));
+  };
+  socket.on('profile_avatar_updated', onProfileAvatarUpdated);
 
   socket.emit('get_online_users');
     
@@ -314,6 +336,10 @@ return () => {
   socket.off('presence_update', onPresence);
   socket.off('online_users', onOnlineUsers);
   socket.off('circle_invitation', onInvitation);
+  socket.off('connect', refreshMemberships);
+  socket.off('circle_removed', refreshMemberships);
+  socket.off('circle_members_changed', refreshMemberships);
+  socket.off('profile_avatar_updated', onProfileAvatarUpdated);
 };
 
   }, [currentUser._id]);
@@ -329,12 +355,14 @@ return () => {
       const dataCircles = await resCircles.json();
       setUsers(Array.isArray(dataUsers) ? dataUsers : []);
       setCircles(Array.isArray(dataCircles) ? dataCircles : []);
+      if (Array.isArray(dataCircles)) tools.syncCircleLogos(dataCircles);
       // Entra automaticamente nelle stanze di tutte le cerchie
 // dell'utente, così riceve i messaggi anche quando è nella Home.
 if (Array.isArray(dataCircles)) {
   dataCircles.forEach(circle => {
     socket.emit('join_circle', {
       circleId: circle._id,
+      history: false,
       userId: currentUser._id
     });
   });
@@ -424,7 +452,7 @@ if (Array.isArray(dataCircles)) {
           width: 8,
           height: 8,
           borderRadius: 4,
-          backgroundColor: '#EC4899',
+          backgroundColor: '#22C55E',
           marginLeft: 6
         }}
       />
@@ -475,7 +503,7 @@ renderItem={({ item }) => {
         <View style={{ flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'flex-end', maxWidth: 110, gap: 5 }}>
           {Object.entries(typeof hasUnread === 'object' ? hasUnread : { direct: null }).map(([key, origin]) => origin ? (
             <TouchableOpacity key={key} accessibilityLabel={`Messaggi da ${origin.name}`} onPress={() => navigation.navigate('Chat', { recipient: item, sourceCircle: origin })}>
-              <CircleLogo logo={origin.logo} type={origin.type} size={32} label={`Messaggi da ${origin.name}`} />
+              <CircleLogo logo={tools.circleLogos?.[String(origin._id)] || origin.logo} type={origin.type} size={32} label={`Messaggi da ${origin.name}`} />
             </TouchableOpacity>
           ) : <Image key={key} accessibilityLabel="Messaggi diretti" source={require('./assets/bustina-alata.png')} style={{ width: 38, height: 32, resizeMode: 'contain' }} />)}
         </View>
@@ -496,7 +524,7 @@ renderItem={({ item }) => {
               
               renderItem={({ item }) => (
                 <TouchableOpacity style={styles.circleCard} onPress={() => navigation.navigate('CircleDetail', { circle: item })}>
-                  <View style={styles.circleIcon}><CircleLogo logo={item.logo} type={item.type} label={item.name} /></View>
+                  <View style={styles.circleIcon}><CircleLogo logo={tools.circleLogos?.[String(item._id)] || item.logo} type={item.type} label={item.name} /></View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.chatName}>{item.name}</Text>
                   <Text style={styles.circleTypeBadges}>{item.type}</Text>
@@ -600,13 +628,41 @@ function CreateCircleScreen({ navigation, currentUser }) {
 }
 
 function SettingsModal({ visible, onClose, currentUser, onUserUpdated, onLogout, onDeleteAccount }) {
+  const tools = useCircleToolsContext();
+  const [alertsVisible, setAlertsVisible] = useState(false);
+  useEffect(() => { if (!visible) setAlertsVisible(false); }, [visible]);
   const [editVisible, setEditVisible] = useState(false);
   const [mode, setMode] = useState('name');
   const [value, setValue] = useState('');
   const [password, setPassword] = useState('');
+  const [photoBusy, setPhotoBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
 
   const openEdit = (m) => { setMode(m); setValue(m === 'name' ? currentUser.username : m === 'email' ? currentUser.email : currentUser.avatar || ''); setPassword(''); setEditVisible(true); };
+  const pickProfilePhoto = async () => {
+    if (photoBusy || saving) return;
+    setPhotoBusy(true);
+    try {
+      // Il selettore deve aprirsi direttamente dal tocco dell'utente anche sul web.
+      const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ['images'], allowsEditing: true, aspect: [1, 1], quality: 1 });
+      if (result.canceled || !result.assets?.[0]) return;
+      const asset = result.assets[0];
+      const context = ImageManipulator.manipulate(asset.uri);
+      if (asset.width && asset.height) {
+        const side = Math.min(asset.width, asset.height);
+        context.crop({ originX: Math.floor((asset.width - side) / 2), originY: Math.floor((asset.height - side) / 2), width: side, height: side });
+      }
+      context.resize({ width: 256, height: 256 });
+      const rendered = await context.renderAsync();
+      const image = await rendered.saveAsync({ format: SaveFormat.JPEG, compress: 0.7, base64: true });
+      if (!image.base64 || image.base64.length > 180000) throw new Error('Foto troppo grande: scegli un’altra immagine.');
+      setValue(`data:image/jpeg;base64,${image.base64}`);
+    } catch (error) { Alert.alert('Foto profilo', error.message || 'Non riesco a preparare la foto.'); }
+    finally { setPhotoBusy(false); }
+  };
   const save = async () => {
+    if (photoBusy || saving) return;
+    setSaving(true);
     try {
       const body = mode === 'password' ? { password: value, currentPassword: password } : mode === 'name' ? { username: value } : mode === 'email' ? { email: value } : { avatar: value };
       const res = await fetch(`${API_BASE_URL}/api/users/${currentUser._id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
@@ -616,7 +672,12 @@ function SettingsModal({ visible, onClose, currentUser, onUserUpdated, onLogout,
       setEditVisible(false);
       Alert.alert('StoneApp', 'Dati aggiornati.');
     } catch (err) { Alert.alert('Errore', err.message); }
+    finally { setSaving(false); }
   };
+
+  if (alertsVisible) return <Modal visible={visible} animationType="slide" transparent onRequestClose={() => setAlertsVisible(false)}>
+    <View style={styles.modalOverlay}><HomeAlertSettings onBack={() => setAlertsVisible(false)} /></View>
+  </Modal>;
 
   return <Modal visible={visible} animationType="slide" transparent>
     <View style={styles.modalOverlay}><View style={styles.modalContent}>
@@ -625,6 +686,7 @@ function SettingsModal({ visible, onClose, currentUser, onUserUpdated, onLogout,
       <TouchableOpacity style={styles.settingsRow} onPress={() => openEdit('avatar')}><Text>📷 Cambia foto</Text></TouchableOpacity>
       <TouchableOpacity style={styles.settingsRow} onPress={() => openEdit('email')}><Text>✉️ Cambia email</Text></TouchableOpacity>
       <TouchableOpacity style={styles.settingsRow} onPress={() => openEdit('password')}><Text>🔐 Modifica password</Text></TouchableOpacity>
+      <TouchableOpacity style={styles.settingsRow} disabled={!tools.ready} onPress={() => setAlertsVisible(true)}><Text>🔔 Attiva alert — chat private</Text></TouchableOpacity>
       <TouchableOpacity style={styles.settingsRow} onPress={onLogout}><Text>🚪 Logout</Text></TouchableOpacity>
       <TouchableOpacity style={[styles.settingsRow, { borderColor: '#FECACA' }]} onPress={onDeleteAccount}><Text style={{ color: '#EF4444', fontWeight: 'bold' }}>🗑️ Elimina account</Text></TouchableOpacity>
       <TouchableOpacity style={styles.cancelBtn} onPress={onClose}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Chiudi</Text></TouchableOpacity>
@@ -632,9 +694,21 @@ function SettingsModal({ visible, onClose, currentUser, onUserUpdated, onLogout,
       <Modal visible={editVisible} transparent animationType="fade">
         <View style={styles.modalOverlay}><View style={styles.modalContent}>
           <Text style={styles.modalTitle}>{mode === 'name' ? 'Cambia nome' : mode === 'email' ? 'Cambia email' : mode === 'avatar' ? 'Cambia foto' : 'Modifica password'}</Text>
-          <TextInput style={styles.authInput} value={value} onChangeText={setValue} placeholder={mode === 'avatar' ? 'URL della nuova foto' : mode === 'password' ? 'Nuova password' : ''} secureTextEntry={mode === 'password'} />
+          {mode === 'avatar' && <>
+            <TouchableOpacity style={styles.settingsRow} disabled={photoBusy || saving} onPress={pickProfilePhoto}>
+              <Text style={{ color: '#4F46E5', fontWeight: '600' }}>{photoBusy ? 'Preparazione foto…' : '📷 Scegli dalla galleria'}</Text>
+            </TouchableOpacity>
+            {!!value && <Image source={{ uri: value }} style={{ width: 80, height: 80, borderRadius: 40, alignSelf: 'center', marginVertical: 10 }} />}
+          </>}
+          {mode === 'avatar' && value.startsWith('data:image/') ? (
+            <TouchableOpacity disabled={saving || photoBusy} onPress={() => setValue('')}>
+              <Text style={{ color: '#4F46E5', marginVertical: 8 }}>Foto selezionata · Usa un URL invece</Text>
+            </TouchableOpacity>
+          ) : (
+            <TextInput style={styles.authInput} value={value} onChangeText={setValue} placeholder={mode === 'avatar' ? 'Oppure incolla URL della foto' : mode === 'password' ? 'Nuova password' : ''} secureTextEntry={mode === 'password'} />
+          )}
           {mode === 'password' && <TextInput style={styles.authInput} value={password} onChangeText={setPassword} placeholder="Password attuale" secureTextEntry />}
-          <View style={styles.modalActions}><TouchableOpacity style={styles.cancelBtn} onPress={() => setEditVisible(false)}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Annulla</Text></TouchableOpacity><TouchableOpacity style={styles.confirmBtn} onPress={save}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>Salva</Text></TouchableOpacity></View>
+          <View style={styles.modalActions}><TouchableOpacity style={styles.cancelBtn} disabled={saving} onPress={() => setEditVisible(false)}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Annulla</Text></TouchableOpacity><TouchableOpacity style={styles.confirmBtn} disabled={saving || photoBusy} onPress={save}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>{saving ? 'Salvataggio…' : 'Salva'}</Text></TouchableOpacity></View>
         </View></View>
       </Modal>
     </View></View>
@@ -651,6 +725,7 @@ function CircleDetailScreen({  route,
   onDeleteAccount,
   onLogout,
   onUserUpdated  }) {
+  const tools = useCircleToolsContext();
   const { circle: initialCircle } = route.params;
   const [circle, setCircle] = useState(initialCircle);
   console.log(
@@ -668,7 +743,7 @@ function CircleDetailScreen({  route,
 
   const acceptedMembers = (circle.members || []).filter(m => m.status === 'ACCEPTED' && m.userId);
   const myMember = acceptedMembers.find(m => String(m.userId?._id || m.userId) === String(currentUser._id));
-  const canManageMembers = myMember?.role === CIRCLE_OWNER_ROLE[circle.type];
+  const canManageMembers = String(circle.adminId?._id || circle.adminId) === String(currentUser._id) || myMember?.role === CIRCLE_OWNER_ROLE[circle.type];
   const config = CIRCLE_CONFIG[circle.type] || CIRCLE_CONFIG.COOPERATIVA;
   const myRoleConfig = config.roles[myMember?.role];
 
@@ -690,12 +765,15 @@ function CircleDetailScreen({  route,
       setOnlineUsers(map);
     };
 
+    const onMembersChanged = event => { if (String(event.circleId) === String(circle._id)) refreshCircle(); };
+    socket.on('circle_members_changed', onMembersChanged);
     socket.on('presence_update', onPresence);
     socket.on('online_users', onOnlineUsers);
 
     socket.emit('get_online_users');
 
     return () => {
+      socket.off('circle_members_changed', onMembersChanged);
       socket.off('presence_update', onPresence);
       socket.off('online_users', onOnlineUsers);
     };
@@ -708,7 +786,9 @@ function CircleDetailScreen({  route,
     );
 
     if (res.ok) {
-      setCircle(await res.json());
+      const data = await res.json();
+      setCircle(data);
+      tools.syncCircleLogos([data]);
     }
   };
 
@@ -804,15 +884,17 @@ function CircleDetailScreen({  route,
 
 
   return (
-    <SafeAreaView
+    <CircleSurface
+      circleId={circle._id}
       style={styles.chatContainer}
       edges={['bottom']}
     >
 
+      <CircleUnreadNotice />
       {/* HEADER CERCHIA */}
 
       <View style={styles.circleHeaderLarge}>
-        <View style={{ marginRight: 12 }}><CircleLogo logo={circle.logo} type={circle.type} label={circle.name} /></View>
+        <View style={{ marginRight: 12 }}><CircleLogo logo={tools.circleLogos?.[String(circle._id)] || circle.logo} type={circle.type} label={circle.name} /></View>
 
         <View style={{ flex: 1 }}>
 
@@ -1302,18 +1384,16 @@ function CircleDetailScreen({  route,
 
       {/* IMPOSTAZIONI */}
 
-      <SettingsModal
+      <CircleSettingsModal
         visible={settingsVisible}
-        onClose={() =>
-          setSettingsVisible(false)
-        }
+        onClose={() => setSettingsVisible(false)}
+        circle={circle}
         currentUser={currentUser}
-        onUserUpdated={onUserUpdated}
-        onLogout={onLogout}
-        onDeleteAccount={onDeleteAccount}
+        apiBaseUrl={API_BASE_URL}
+        onRemoved={tools.onRemoved}
       />
 
-    </SafeAreaView>
+    </CircleSurface>
   );
 }
 
@@ -1326,6 +1406,7 @@ function ChatScreen({
   onClearUnread,
   onSetActivePrivateRoom
 }) {
+  const tools = useCircleToolsContext();
   const { recipient, sourceCircle = null } = route.params;
   const [sending, setSending] = useState(false);
 
@@ -1338,7 +1419,7 @@ function ChatScreen({
 
 // Tiene traccia della chat privata realmente visibile
 useEffect(() => {
-  if (isFocused) {
+  if (isFocused && tools.foreground) {
     console.log('🟢 CHAT PRIVATA ATTIVA:', roomId);
     onSetActivePrivateRoom(roomId);
 } else {
@@ -1353,12 +1434,12 @@ useEffect(() => {
   return () => {
     onSetActivePrivateRoom(null);
   };
-}, [isFocused, roomId, onSetActivePrivateRoom]);
+}, [isFocused, tools.foreground, roomId, onSetActivePrivateRoom]);
 
 
 // Gestisce i messaggi solo mentre questa chat è visibile
 useEffect(() => {
-  if (!isFocused) return;
+  if (!isFocused || !tools.foreground) return;
 
   // Quando apro la chat, la considero letta
   onClearUnread(roomId);
@@ -1391,7 +1472,7 @@ useEffect(() => {
     socket.off('load_history', handleLoadHistory);
     socket.off('receive_message', handleReceiveMessage);
   };
-}, [isFocused, roomId]);
+}, [isFocused, tools.foreground, roomId, onClearUnread]);
 
 
 
@@ -1416,10 +1497,12 @@ useEffect(() => {
   };
 
   return (
-    <SafeAreaView style={styles.chatContainer} edges={['bottom']}>
+    <CircleSurface circleId={sourceCircle?._id} style={styles.chatContainer} edges={['bottom']}>
+      <CircleUnreadNotice />
       {sourceCircle && <View style={{ flexDirection: 'row', alignItems: 'center', padding: 10, gap: 8, backgroundColor: '#EEF2FF' }}>
-        <CircleLogo logo={sourceCircle.logo} type={sourceCircle.type} size={28} />
+        <CircleLogo logo={tools.circleLogos?.[String(sourceCircle._id)] || sourceCircle.logo} type={sourceCircle.type} size={28} />
         <Text style={{ flex: 1 }}>Messaggio privato da {sourceCircle.name}</Text>
+        <CircleSettingsButton circleId={sourceCircle._id} currentUser={currentUser} apiBaseUrl={API_BASE_URL} />
       </View>}
       <FlatList
         data={messages}
@@ -1450,7 +1533,7 @@ useEffect(() => {
           </TouchableOpacity>
         </View>
       </KeyboardAvoidingView>
-    </SafeAreaView>
+    </CircleSurface>
   );
 }
 
@@ -1460,6 +1543,7 @@ function CircleChatScreen({
   onClearCircleUnread,
   onSetActiveCircle
 }) {
+  const tools = useCircleToolsContext();
   const { circle } = route.params;
 
   const [messages, setMessages] = useState([]);
@@ -1469,7 +1553,7 @@ function CircleChatScreen({
   const circleId = String(circle._id);
 
   useEffect(() => {
-    if (!isFocused) {
+    if (!isFocused || !tools.foreground) {
       onSetActiveCircle(null);
       return;
     }
@@ -1482,14 +1566,8 @@ function CircleChatScreen({
       onClearCircleUnread(circleId);
     }
 
-    // Entra nella stanza Socket.IO della cerchia
-    socket.emit('join_circle', {
-      circleId,
-      userId: currentUser._id
-    });
-
-    const handleCircleHistory = (history) => {
-      setMessages(history);
+    const handleCircleHistory = (payload) => {
+      if (String(payload.circleId) === circleId) setMessages(payload.messages);
     };
 
     const handleCircleMessage = (newMessage) => {
@@ -1498,13 +1576,20 @@ function CircleChatScreen({
         return;
       }
 
-      setMessages(prev => [...prev, newMessage]);
+      setMessages(prev => prev.some(message => message._id === newMessage._id) ? prev : [...prev, newMessage]);
     };
 
     socket.on('circle_history', handleCircleHistory);
     socket.on('circle_message', handleCircleMessage);
+    const requestHistory = () => {
+      socket.emit('set_online', { userId: currentUser._id });
+      socket.emit('join_circle', { circleId, userId: currentUser._id });
+    };
+    socket.on('connect', requestHistory);
+    requestHistory();
 
     return () => {
+      socket.off('connect', requestHistory);
       socket.off('circle_history', handleCircleHistory);
       socket.off('circle_message', handleCircleMessage);
 
@@ -1512,6 +1597,7 @@ function CircleChatScreen({
     };
   }, [
     isFocused,
+    tools.foreground,
     circleId,
     currentUser._id,
     onClearCircleUnread,
@@ -1546,10 +1632,16 @@ function CircleChatScreen({
 
 
   return (
-    <SafeAreaView
+    <CircleSurface
+      circleId={circleId}
       style={styles.chatContainer}
       edges={['bottom']}
     >
+      <CircleUnreadNotice />
+      <View style={{ flexDirection: 'row', alignItems: 'center', paddingHorizontal: 12, backgroundColor: 'rgba(255,255,255,0.9)' }}>
+        <Text style={{ flex: 1, fontWeight: '600' }}>{circle.name}</Text>
+        <CircleSettingsButton circleId={circleId} currentUser={currentUser} apiBaseUrl={API_BASE_URL} />
+      </View>
 
       <FlatList
         data={messages}
@@ -1650,7 +1742,7 @@ function CircleChatScreen({
 
       </KeyboardAvoidingView>
 
-    </SafeAreaView>
+    </CircleSurface>
   );
 }
 
@@ -1663,133 +1755,111 @@ export default function App() {
   const [currentUser, setCurrentUser] = useState(null);
   const [loadingAuth, setLoadingAuth] = useState(true);
 
+  const circleTools = useCircleTools(currentUser?._id);
+  const toolsRef = useRef(circleTools);
+  toolsRef.current = circleTools;
+  const navigationRef = useNavigationContainerRef();
   const [unreadPrivateRooms, setUnreadPrivateRooms] = useState({});
-  const [activePrivateRoomId, setActivePrivateRoomId] = useState(null);
-
   const [unreadCircles, setUnreadCircles] = useState({});
-  const [activeCircleId, setActiveCircleId] = useState(null);
-  useEffect(() => {
-    setUnreadPrivateRooms({});
-    setUnreadCircles({});
-    setActivePrivateRoomId(null);
-    setActiveCircleId(null);
-  }, [currentUser?._id]);
+  const [circleLogos, setCircleLogos] = useState({});
+  const syncCircleLogos = useCallback(circles => {
+    setCircleLogos(prev => {
+      const next = { ...prev };
+      for (const circle of circles) next[String(circle._id)] = circle.logo || null;
+      return next;
+    });
+  }, []);
+  const handleLogoUpdated = useCallback(({ circleId, logo }) => {
+    setCircleLogos(prev => ({ ...prev, [String(circleId)]: logo }));
+    setUnreadPrivateRooms(prev => {
+      const next = { ...prev };
+      for (const [roomId, origins] of Object.entries(prev)) {
+        if (origins[circleId]) next[roomId] = { ...origins, [circleId]: { ...origins[circleId], logo } };
+      }
+      return next;
+    });
+  }, []);
 
-  const clearUnreadPrivateRoom = (roomId) => {
+  const activePrivateRoom = useRef(null);
+  const activeCircle = useRef(null);
+  const engine = circleTools.engine;
+
+  const clearUnreadPrivateRoom = useCallback(roomId => {
+    engine.clearPrivateRoom(roomId);
     setUnreadPrivateRooms(prev => {
       if (!prev[roomId]) return prev;
-
-      const updated = { ...prev };
-      delete updated[roomId];
-      return updated;
+      const next = { ...prev }; delete next[roomId]; return next;
     });
-  };
-
-  const clearUnreadCircle = (circleId) => {
-  setUnreadCircles(prev => {
-    if (!prev[circleId]) return prev;
-
-    const updated = { ...prev };
-    delete updated[circleId];
-
-    return updated;
-  });
-};
-
-useEffect(() => {
-  if (!currentUser?._id) return;
-
-  const handleIncomingPrivateMessage = (newMessage) => {
-    console.log('📩 MESSAGGIO PRIVATO RICEVUTO:', newMessage._id);
-console.log('📍 CHAT PRIVATA ATTIVA:', activePrivateRoomId);
-    // Ignora i messaggi inviati da me
-    if (String(newMessage.senderId) === String(currentUser._id)) {
-      return;
-    }
-
-    // Se il messaggio appartiene alla chat attualmente aperta,
-    // ChatScreen lo sta già visualizzando: nessun pallino.
-    if (newMessage.roomId === activePrivateRoomId) {
-      return;
-    }
-
-    // Altrimenti quella chat diventa non letta.
-    setUnreadPrivateRooms(prev => ({
-      ...prev,
-      [newMessage.roomId]: addUnreadOrigin(prev[newMessage.roomId], newMessage)
-    }));
-  };
-console.log(
-  '🧩 ATTIVO LISTENER PRIVATO GLOBALE:',
-  activePrivateRoomId
-);
-
-socket.on('receive_message', handleIncomingPrivateMessage);
-
-return () => {
-  console.log(
-    '🧹 RIMUOVO LISTENER PRIVATO GLOBALE:',
-    activePrivateRoomId
-  );
-
-  socket.off('receive_message', handleIncomingPrivateMessage);
-};
-  
-}, [currentUser?._id, activePrivateRoomId]);
-
-useEffect(() => {
-  if (!currentUser?._id) return;
-
-  const handleIncomingCircleMessage = (newMessage) => {
-    console.log('📨 MESSAGGIO CERCHIA RICEVUTO:', newMessage);
-    // Ignora i messaggi inviati da me
-    if (String(newMessage.senderId) === String(currentUser._id)) return;
-
-    // Il roomId è nel formato: circle_IDDELLACERCHIA
-    const circleId = String(newMessage.roomId || '').replace('circle_', '');
-
-    if (!circleId) return;
-
-    // Se questa cerchia è già aperta, non la segniamo come non letta
-    if (circleId === String(activeCircleId || '')) return;
-
-    // Segna SOLO questa cerchia come non letta
-    setUnreadCircles(prev => ({
-      ...prev,
-      [circleId]: true
-    }));
-  };
-  
-
-  socket.on('circle_message', handleIncomingCircleMessage);
-
-  return () => {
-    socket.off('circle_message', handleIncomingCircleMessage);
-  };
-}, [currentUser?._id, activeCircleId]);
-
-useEffect(() => {
-  if (!currentUser?._id) return;
-
-  const announceOnline = () => {
-    console.log('🟢 SET ONLINE:', currentUser._id);
-
-    socket.emit('set_online', {
-      userId: currentUser._id
+  }, [engine]);
+  const clearUnreadCircle = useCallback(circleId => {
+    engine.clearCircleChat(circleId);
+    setUnreadCircles(prev => {
+      if (!prev[circleId]) return prev;
+      const next = { ...prev }; delete next[circleId]; return next;
     });
-  };
+  }, [engine]);
+  const setActivePrivateRoomId = useCallback(roomId => {
+    activePrivateRoom.current = roomId;
+    if (roomId) clearUnreadPrivateRoom(roomId);
+  }, [clearUnreadPrivateRoom]);
+  const setActiveCircleId = useCallback(circleId => {
+    activeCircle.current = circleId;
+    if (circleId) clearUnreadCircle(circleId);
+  }, [clearUnreadCircle]);
+  const handleCircleRemoved = useCallback(circleId => {
+    engine.removeCircle(circleId);
+    clearUnreadCircle(circleId);
+    setUnreadPrivateRooms(prev => {
+      const next = {};
+      for (const [roomId, origins] of Object.entries(prev)) {
+        const remaining = { ...origins }; delete remaining[circleId];
+        if (Object.keys(remaining).length) next[roomId] = remaining;
+      }
+      return next;
+    });
+    toolsRef.current.remove(circleId).catch(error => console.warn('Preferenze cerchia:', error.message));
+    const route = navigationRef.getCurrentRoute();
+    const openId = route?.params?.circle?._id || route?.params?.sourceCircle?._id;
+    if (String(openId) === String(circleId)) navigationRef.reset({ index: 0, routes: [{ name: 'Home', params: { openTab: 'circles' } }] });
+  }, [engine, clearUnreadCircle, navigationRef]);
 
-  if (socket.connected) {
-    announceOnline();
-  }
+  useEffect(() => {
+    setUnreadPrivateRooms({}); setUnreadCircles({}); setCircleLogos({});
+    activePrivateRoom.current = null; activeCircle.current = null;
+    engine.reset();
+  }, [currentUser?._id, engine]);
 
-  socket.on('connect', announceOnline);
-
-  return () => {
-    socket.off('connect', announceOnline);
-  };
-}, [currentUser?._id]);
-
+  useEffect(() => {
+    if (!currentUser?._id) return;
+    const onPrivate = message => {
+      if (String(message.senderId) === String(currentUser._id)) return;
+      if (toolsRef.current.isForeground() && message.roomId === activePrivateRoom.current) return;
+      setUnreadPrivateRooms(prev => ({ ...prev, [message.roomId]: addUnreadOrigin(prev[message.roomId], message) }));
+      engine.receive(privateAlertEvent(message));
+    };
+    const onGroup = message => {
+      if (String(message.senderId) === String(currentUser._id) || !String(message.roomId).startsWith('circle_')) return;
+      const circleId = String(message.roomId).slice(7);
+      if (!circleId || (toolsRef.current.isForeground() && circleId === activeCircle.current)) return;
+      setUnreadCircles(prev => ({ ...prev, [circleId]: true }));
+      engine.receive({ kind: 'group', circleId, messageId: message._id });
+    };
+    const onRemoved = event => handleCircleRemoved(String(event.circleId));
+    const announceOnline = () => socket.emit('set_online', { userId: currentUser._id });
+    socket.on('receive_message', onPrivate);
+    socket.on('circle_message', onGroup);
+    socket.on('circle_removed', onRemoved);
+    socket.on('circle_logo_updated', handleLogoUpdated);
+    socket.on('connect', announceOnline);
+    if (socket.connected) announceOnline();
+    return () => {
+      socket.off('receive_message', onPrivate);
+      socket.off('circle_message', onGroup);
+      socket.off('circle_removed', onRemoved);
+      socket.off('circle_logo_updated', handleLogoUpdated);
+      socket.off('connect', announceOnline);
+    };
+  }, [currentUser?._id, engine, handleCircleRemoved, handleLogoUpdated]);
 
  const checkSavedUser = async () => {
   try {
@@ -1868,8 +1938,9 @@ const handleLogout = async () => {
   }
 
   return (
+    <CircleToolsContext.Provider value={{ ...circleTools, circleLogos, syncCircleLogos, onLogoUpdated: handleLogoUpdated, unreadCircles, onRemoved: handleCircleRemoved, openCircles: () => navigationRef.navigate('Home', { openTab: 'circles' }) }}>
     <SafeAreaProvider>
-      <NavigationContainer>
+      <NavigationContainer ref={navigationRef}>
         <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: '#0F172A' }, headerTintColor: '#FFFFFF' }}>
           {currentUser ? (
             <>
@@ -1953,6 +2024,7 @@ const handleLogout = async () => {
         </Stack.Navigator>
       </NavigationContainer>
     </SafeAreaProvider>
+    </CircleToolsContext.Provider>
   );
 }
 
