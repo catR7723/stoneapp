@@ -4,18 +4,27 @@ const mongoose = require('mongoose');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
+const { normalizeLogo } = require('./circleLogos');
+const { registerPrivateMessaging } = require('./privateMessages');
+const { createCircleLifecycle } = require('./circleLifecycle');
+const { createCircleLogoUpdate } = require('./circleLogoUpdate');
+const { normalizeProfileAvatar } = require('./profileAvatar');
 
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
   cors: {
     origin: '*',
-    methods: ['GET', 'POST', 'DELETE'],
+    methods: ['GET', 'POST', 'PUT', 'DELETE'],
   },
 });
 
 app.use(cors());
-app.use(express.json());
+app.use(express.json({ limit: '256kb' }));
+
+// Presenza online: più socket possono appartenere allo stesso utente.
+const onlineUsers = new Map();
+const broadcastPresence = (userId, online) => io.emit('presence_update', { userId: String(userId), online });
 
 const PORT = 3001;
 const MONGO_URI = 'mongodb+srv://davcattan_db_user:2STQVQ4DXWw17unx@cluster0.7havsn1.mongodb.net/?appName=Cluster0' 
@@ -46,6 +55,8 @@ const User = mongoose.model('User', userSchema);
 const messageSchema = new mongoose.Schema({
   roomId: { type: String, required: true },
   senderId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  sourceCircleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle', default: null },
+  sourceCircleName: { type: String, default: '' },
   senderName: String,
   text: { type: String, required: true },
   time: String,
@@ -55,24 +66,99 @@ const messageSchema = new mongoose.Schema({
 const Message = mongoose.model('Message', messageSchema);
 
 // 3. Schema Cerchia (Circle)
+// 3. Schema Cerchia (Circle)
 const circleSchema = new mongoose.Schema({
-  name: { type: String, required: true },
-  type: { 
-    type: String, 
-    enum: ['COOPERATIVA', 'NEGOZIO', 'IMPRESA', 'GRUPPO'], 
-    default: 'COOPERATIVA' 
+  logo: { kind: { type: String, enum: ['preset', 'image'] }, value: String },
+  name: {
+    type: String,
+    required: true
   },
-  adminId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+
+  type: {
+    type: String,
+    enum: [
+      'COOPERATIVA',
+      'IMPRESA',
+      'GRUPPO',
+      'SQUADRA',
+      'NEGOZIO',
+      'SCUOLA'
+    ],
+    default: 'COOPERATIVA'
+  },
+
+  adminId: {
+    type: mongoose.Schema.Types.ObjectId,
+    ref: 'User',
+    required: true
+  },
+
   members: [{
-    userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
-    role: { 
-      type: String, 
-      enum: ['AMMINISTRATORE', 'SOCIO_LAVORATORE', 'UTENTE', 'SOSTENITORE'],
+    userId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: 'User',
+      required: true
+    },
+
+    role: {
+      type: String,
+      enum: [
+        // Ruoli generali
+        'AMMINISTRATORE',
+        'UTENTE',
+        'SOSTENITORE',
+
+        // COOPERATIVA
+        'SOCIO_LAVORATORE',
+        'VOLONTARIO',
+        'DIPENDENTE',
+
+        // IMPRESA
+        'QUADRO',
+        'IMPIEGATO',
+        'OPERAIO',
+        'SERVIZI',
+
+        // GRUPPO
+        'RESPONSABILE',
+        'PARTECIPANTE',
+
+        // SQUADRA
+        'DIRIGENTE',
+        'ATLETA',
+        'GENITORE',
+
+        // NEGOZIO
+        'CLIENTE',
+        'RESPONSABILE_VENDITE',
+        'VENDITORE',
+
+        // SCUOLA
+        'GENITORE',
+        'STUDENTE',
+        'IMPIEGATO_SCOLASTICO',
+        'BIDELLO',
+        'VOLONTARIO_SCOLASTICO',
+        'PROFESSORE',
+        'PROFESSORESSA',
+        'MAESTRO',
+        'MAESTRA',
+        'DIRIGENZA'
+      ],
       default: 'UTENTE'
     },
-    status: { type: String, enum: ['PENDING', 'ACCEPTED'], default: 'ACCEPTED' }
+
+    status: {
+      type: String,
+      enum: ['PENDING', 'ACCEPTED'],
+      default: 'ACCEPTED'
+    }
   }],
-  createdAt: { type: Date, default: Date.now }
+
+  createdAt: {
+    type: Date,
+    default: Date.now
+  }
 });
 
 const Circle = mongoose.model('Circle', circleSchema);
@@ -186,6 +272,49 @@ app.get('/api/users/:currentUserId', async (req, res) => {
   }
 });
 
+// Modifica dati personali
+app.put('/api/users/:userId', async (req, res) => {
+  try {
+    const { userId } = req.params;
+    const { username, email, avatar, password, currentPassword } = req.body;
+    const user = await User.findById(userId);
+    if (!user) return res.status(404).json({ error: 'Utente non trovato' });
+
+    if (username !== undefined) {
+      const clean = String(username).trim();
+      if (!clean) return res.status(400).json({ error: 'Il nome non può essere vuoto' });
+      const exists = await User.findOne({ username: clean, _id: { $ne: userId } });
+      if (exists) return res.status(400).json({ error: 'Username già utilizzato' });
+      user.username = clean;
+    }
+    if (email !== undefined) {
+      const clean = String(email).trim().toLowerCase();
+      if (!clean) return res.status(400).json({ error: 'L’email non può essere vuota' });
+      const exists = await User.findOne({ email: clean, _id: { $ne: userId } });
+      if (exists) return res.status(400).json({ error: 'Email già utilizzata' });
+      user.email = clean;
+    }
+    if (avatar !== undefined) {
+      try { user.avatar = normalizeProfileAvatar(avatar); }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+    }
+    if (password !== undefined) {
+      if (!currentPassword) return res.status(400).json({ error: 'Inserisci la password attuale' });
+      const ok = await bcrypt.compare(currentPassword, user.password);
+      if (!ok) return res.status(400).json({ error: 'Password attuale non corretta' });
+      if (String(password).length < 6) return res.status(400).json({ error: 'La nuova password deve avere almeno 6 caratteri' });
+      user.password = await bcrypt.hash(String(password), 10);
+    }
+    await user.save();
+    if (avatar !== undefined) io.emit('profile_avatar_updated', { userId: String(user._id), avatar: user.avatar });
+    res.json({ _id: user._id, username: user.username, email: user.email, avatar: user.avatar });
+  } catch (error) {
+    if (error.code === 11000) return res.status(400).json({ error: 'Email o Username già utilizzati' });
+    console.error('Errore modifica dati personali:', error);
+    res.status(500).json({ error: 'Errore durante l’aggiornamento dei dati' });
+  }
+});
+
 // Elimina Account Definitivamente
 app.delete('/api/users/:userId', async (req, res) => {
   try {
@@ -214,31 +343,171 @@ app.delete('/api/users/:userId', async (req, res) => {
 app.post('/api/circles', async (req, res) => {
   try {
     const { name, type, adminId, initialMembers } = req.body;
+    let logo;
+    try { logo = normalizeLogo(req.body.logo, type); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+
+    const admin = await User.findById(adminId);
+
+    if (!admin) {
+      return res.status(404).json({
+        error: 'Amministratore non trovato'
+      });
+    }
+
+    // L'amministratore entra subito nella cerchia
     const members = [
-      { userId: adminId, role: 'AMMINISTRATORE', status: 'ACCEPTED' },
-      ...(initialMembers || [])
+      {
+        userId: adminId,
+        role: 'AMMINISTRATORE',
+        status: 'ACCEPTED'
+      }
     ];
 
-    const newCircle = new Circle({ name, type: type || 'COOPERATIVA', adminId, members });
+    // Aggiunge gli utenti invitati come PENDING
+    if (Array.isArray(initialMembers)) {
+      for (const member of initialMembers) {
+        if (!member.userId) continue;
+
+        // Evita di aggiungere l'amministratore due volte
+        if (String(member.userId) === String(adminId)) continue;
+
+        members.push({
+          userId: member.userId,
+          role: member.role || 'UTENTE',
+          status: 'PENDING'
+        });
+      }
+    }
+
+    const newCircle = new Circle({
+      logo,
+      name,
+      type: type || 'COOPERATIVA',
+      adminId,
+      members
+    });
+
     await newCircle.save();
 
-    console.log(`✨ Nuova Cerchia creata: ${newCircle.name} (${newCircle.type})`);
+    console.log(
+      `✨ Nuova Cerchia creata: ${newCircle.name} (${newCircle.type})`
+    );
+
+    console.log(
+      `📨 Inviti pendenti: ${members.filter(m => m.status === 'PENDING').length}`
+    );
+
+    // Notifica realtime agli utenti invitati
+    if (Array.isArray(initialMembers)) {
+      for (const member of initialMembers) {
+        if (!member.userId) continue;
+        if (String(member.userId) === String(adminId)) continue;
+
+        io.emit('circle_invitation', {
+          circleId: String(newCircle._id),
+          circleName: newCircle.name,
+          inviterName: admin.username,
+          role: member.role || 'UTENTE',
+          userId: String(member.userId)
+        });
+
+        console.log(
+          `📨 Invito inviato a ${member.userId} come ${member.role || 'UTENTE'}`
+        );
+      }
+    }
+
     res.status(201).json(newCircle);
+
   } catch (error) {
-    res.status(500).json({ error: 'Impossibile creare la cerchia' });
+    console.error('❌ Errore creazione cerchia:', error);
+
+    res.status(500).json({
+      error: 'Impossibile creare la cerchia'
+    });
   }
 });
+
+const circleLifecycle = createCircleLifecycle({ mongoose, User, Circle, Message, Announcement, DocumentModel, WorkShift, bcrypt, io });
+app.put('/api/circles/:circleId/logo', createCircleLogoUpdate({ User, Circle, bcrypt, io }));
+app.delete('/api/circles/:circleId', circleLifecycle.remove);
+app.post('/api/circles/:circleId/leave', circleLifecycle.leave);
 
 // Recupera Cerchie dell'Utente
 app.get('/api/circles/user/:userId', async (req, res) => {
   try {
     const { userId } = req.params;
-    const circles = await Circle.find({ 'members.userId': userId })
+    const circles = await Circle.find({ members: { $elemMatch: { userId, status: 'ACCEPTED' } } })
       .populate('members.userId', 'username avatar email');
     res.json(circles);
   } catch (error) {
     res.status(500).json({ error: 'Errore nel recupero delle cerchie' });
   }
+});
+
+// Dettaglio Cerchia per un utente autorizzato
+app.get('/api/circles/:circleId/:userId', async (req, res) => {
+  try {
+    const { circleId, userId } = req.params;
+    const circle = await Circle.findOne({ _id: circleId, members: { $elemMatch: { userId, status: 'ACCEPTED' } } }).populate('members.userId', 'username avatar email');
+    if (!circle) return res.status(404).json({ error: 'Cerchia non trovata o accesso negato' });
+    res.json(circle);
+  } catch (error) { res.status(500).json({ error: 'Errore nel recupero della cerchia' }); }
+});
+
+// Invia invito a una persona della rubrica. L'utente resta PENDING finché non accetta.
+app.post('/api/circles/:circleId/invite', async (req, res) => {
+  try {
+    const { circleId } = req.params;
+    const { inviterId, userId, role } = req.body;
+    const circle = await Circle.findById(circleId);
+    if (!circle) return res.status(404).json({ error: 'Cerchia non trovata' });
+    const inviter = circle.members.find(m => String(m.userId) === String(inviterId) && m.status === 'ACCEPTED');
+    if (!inviter) return res.status(403).json({ error: 'Non sei membro della cerchia' });
+    if (inviter.role !== 'AMMINISTRATORE') return res.status(403).json({ error: 'Solo l’amministratore può invitare utenti' });
+    const user = await User.findById(userId).select('username avatar email');
+    if (!user) return res.status(404).json({ error: 'Utente non trovato' });
+    if (String(userId) === String(inviterId)) return res.status(400).json({ error: 'Non puoi invitare te stesso' });
+    const existing = circle.members.find(m => String(m.userId) === String(userId));
+    if (existing?.status === 'ACCEPTED') return res.status(400).json({ error: 'L’utente è già nella cerchia' });
+    if (existing) { existing.role = role || 'UTENTE'; existing.status = 'PENDING'; }
+    else circle.members.push({ userId, role: role || 'UTENTE', status: 'PENDING' });
+    await circle.save();
+    const payload = { circleId: String(circle._id), circleName: circle.name, inviterName: (await User.findById(inviterId).select('username')).username, role: role || 'UTENTE' };
+    io.emit('circle_invitation', { ...payload, userId: String(userId) });
+    res.status(201).json({ message: 'Invito inviato', invitation: payload });
+  } catch (error) { console.error(error); res.status(500).json({ error: 'Errore invio invito' }); }
+});
+
+// Recupera gli inviti pendenti dell'utente.
+app.get('/api/circle-invitations/:userId', async (req, res) => {
+  try {
+    const circles = await Circle.find({ members: { $elemMatch: { userId: req.params.userId, status: 'PENDING' } } }).populate('adminId', 'username');
+    const invitations = circles.map(c => { const m = c.members.find(x => String(x.userId) === String(req.params.userId) && x.status === 'PENDING'); return { circleId: String(c._id), circleName: c.name, inviterName: c.adminId?.username || 'Un amministratore', role: m?.role || 'UTENTE' }; });
+    res.json(invitations);
+  } catch (error) { res.status(500).json({ error: 'Errore recupero inviti' }); }
+});
+
+async function updateInvitation(circleId, userId, accepted) {
+  const circle = await Circle.findById(circleId);
+  if (!circle) return { error: 'Cerchia non trovata', status: 404 };
+  const member = circle.members.find(m => String(m.userId) === String(userId) && m.status === 'PENDING');
+  if (!member) return { error: 'Invito non trovato', status: 404 };
+  if (accepted) member.status = 'ACCEPTED';
+  else circle.members = circle.members.filter(m => String(m.userId) !== String(userId));
+  await circle.save();
+  return { circle };
+}
+
+app.post('/api/circles/:circleId/accept', async (req, res) => {
+  try { const result = await updateInvitation(req.params.circleId, req.body.userId, true); if (result.error) return res.status(result.status).json({ error: result.error }); res.json({ message: 'Invito accettato', circle: result.circle }); }
+  catch (error) { res.status(500).json({ error: 'Errore accettazione invito' }); }
+});
+
+app.post('/api/circles/:circleId/reject', async (req, res) => {
+  try { const result = await updateInvitation(req.params.circleId, req.body.userId, false); if (result.error) return res.status(result.status).json({ error: result.error }); res.json({ message: 'Invito rifiutato' }); }
+  catch (error) { res.status(500).json({ error: 'Errore rifiuto invito' }); }
 });
 
 // Invia Comunicazione
@@ -287,33 +556,66 @@ app.get('/api/circles/:circleId/documents/:userId', async (req, res) => {
 io.on('connection', (socket) => {
   console.log(`🔌 Utente connesso: ${socket.id}`);
 
-  socket.on('join_room', async (roomId) => {
-    socket.join(roomId);
-    try {
-      const history = await Message.find({ roomId }).sort({ createdAt: 1 });
-      socket.emit('load_history', history);
-    } catch (err) {
-      console.error('Errore nel caricamento della cronologia:', err);
+  const clearPresence = () => {
+    const id = socket.data.userId;
+    if (id) {
+      const count = (onlineUsers.get(id) || 1) - 1;
+      if (count <= 0) { onlineUsers.delete(id); broadcastPresence(id, false); }
+      else onlineUsers.set(id, count);
     }
+    socket.data.userId = null;
+    for (const room of socket.rooms) if (room !== socket.id) socket.leave(room);
+  };
+  socket.on('set_online', ({ userId }) => {
+    if (!userId || !mongoose.isValidObjectId(userId)) return;
+    const id = String(userId);
+    if (socket.data.userId !== id) {
+      clearPresence();
+      onlineUsers.set(id, (onlineUsers.get(id) || 0) + 1);
+      socket.data.userId = id;
+    }
+    socket.join(`user_${id}`);
+    broadcastPresence(id, true);
+    socket.emit('online_users', Array.from(onlineUsers.keys()));
+
+  });
+  socket.on('set_offline', () => clearPresence());
+
+  socket.on('get_online_users', () => socket.emit('online_users', Array.from(onlineUsers.keys())));
+
+  registerPrivateMessaging({ socket, io, Circle, Message });
+
+  socket.on('join_circle', async ({ circleId, userId, history = true }) => {
+    try {
+      if (String(userId) !== socket.data.userId) return;
+      const circle = await Circle.findOne({ _id: circleId, members: { $elemMatch: { userId, status: 'ACCEPTED' } } });
+      if (!circle) return socket.emit('circle_error', { error: 'Non sei membro della cerchia' });
+      const roomId = `circle_${circleId}`;
+      socket.join(roomId);
+      if (history) socket.emit('circle_history', { circleId: String(circleId), messages: await Message.find({ roomId }).sort({ createdAt: 1 }) });
+    } catch (err) { console.error('Errore ingresso cerchia:', err); }
   });
 
-  socket.on('send_message', async (data) => {
+  socket.on('send_circle_message', async (data) => {
     try {
-      const newMessage = new Message({
-        roomId: data.roomId,
-        senderId: data.senderId,
-        senderName: data.senderName,
-        text: data.text,
-        time: data.time
-      });
+      if (String(data.senderId) !== socket.data.userId) return;
+      const circle = await Circle.findOne({ _id: data.circleId, members: { $elemMatch: { userId: data.senderId, status: 'ACCEPTED' } } });
+      if (!circle) return socket.emit('circle_error', { error: 'Non sei autorizzato a scrivere in questa cerchia' });
+      const roomId = `circle_${data.circleId}`;
+      const newMessage = new Message({ roomId, senderId: data.senderId, senderName: data.senderName, text: data.text, time: data.time });
       await newMessage.save();
-      io.to(data.roomId).emit('receive_message', newMessage);
-    } catch (err) {
-      console.error('Errore nell\'invio del messaggio:', err);
-    }
+      const recipients = circle.members.filter(member => member.status === 'ACCEPTED').map(member => `user_${member.userId}`);
+      io.to(recipients).emit('circle_message', newMessage);
+    } catch (err) { console.error('Errore messaggio cerchia:', err); }
   });
 
   socket.on('disconnect', () => {
+    const id = socket.data.userId;
+    if (id) {
+      const count = (onlineUsers.get(id) || 1) - 1;
+      if (count <= 0) { onlineUsers.delete(id); broadcastPresence(id, false); }
+      else onlineUsers.set(id, count);
+    }
     console.log(`❌ Utente disconnesso: ${socket.id}`);
   });
 });
