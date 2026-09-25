@@ -7,6 +7,7 @@ import { NavigationContainer, useIsFocused, useNavigationContainerRef } from '@r
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import { SafeAreaProvider, SafeAreaView } from 'react-native-safe-area-context';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import Constants from 'expo-constants';
 import * as ImagePicker from 'expo-image-picker';
 import { ImageManipulator, SaveFormat } from 'expo-image-manipulator';
 
@@ -17,17 +18,20 @@ import { privateAlertEvent } from './utils/privateAlertScope';
 import { HomeAlertSettings } from './components/HomeAlertSettings';
 import { useCircleTools, useCircleToolsContext, CircleToolsContext } from './hooks/useCircleTools';
 import { CircleSettingsModal, CircleSettingsButton, CircleSurface, CircleUnreadNotice } from './components/CircleSettings';
+import CustomCircleEditor, { INITIAL_ROLES, INITIAL_BOARDS } from './components/CustomCircleEditor';
+import CustomBoards from './components/CustomBoards';
+import CustomDocuments from './components/CustomDocuments';
 //import { Audio } from 'expo-av';//
 
 
-//cabiaglio//
-//const API_BASE_URL = 'http://192.168.1.9:3001';//
+// In sviluppo usa lo stesso Mac che serve Expo; un URL esplicito può sovrascriverlo.
+const expoHost = (Constants.expoConfig?.hostUri || Constants.expoGoConfig?.debuggerHost || '').split(':')[0];
 
-//castronno//
-const API_BASE_URL = 'http://192.168.0.150:3001';
+//HOME//
+//const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (/^(?:\d{1,3}\.){3}\d{1,3}$|^localhost$/.test(expoHost) ? `http://${expoHost}:3001` : 'http://192.168.0.150:3001');//
 
-//iphone//
-//const API_BASE_URL = 'http://172.20.10.5:3001';//
+//QUARTIER//
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (/^(?:\d{1,3}\.){3}\d{1,3}$|^localhost$/.test(expoHost) ? `http://${expoHost}:3001` : 'http://192.168.1.9:3001');
 
 
 
@@ -314,7 +318,7 @@ const onInvitation = (invite) => {
 
   Alert.alert(
     'Nuovo invito',
-    `${invite.inviterName} ti ha invitato nella cerchia "${invite.circleName}".`
+    `${invite.inviterName} ti ha invitato nella cerchia "${invite.circleName}" come ${invite.roleName || 'membro'}.`
   );
 };
 
@@ -557,7 +561,7 @@ renderItem={({ item }) => {
             {invites.length === 0 ? <Text style={styles.emptyText}>Non hai inviti in sospeso.</Text> : invites.map(invite => (
               <View key={invite.circleId} style={styles.inviteCard}>
                 <Text style={styles.chatName}>{invite.circleName}</Text>
-                <Text style={styles.lastMessage}>{invite.inviterName} ti ha invitato come {invite.role}</Text>
+                <Text style={styles.lastMessage}>{invite.inviterName} ti ha invitato come {invite.roleName || roleLabel(invite.circleType, invite.role)}</Text>
                 <View style={styles.modalActions}>
                   <TouchableOpacity style={styles.rejectBtn} onPress={() => respondInvite(invite, false)}><Text style={{ fontWeight: 'bold', color: '#EF4444' }}>Rifiuta</Text></TouchableOpacity>
                   <TouchableOpacity style={styles.confirmBtn} onPress={() => respondInvite(invite, true)}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>Accetta</Text></TouchableOpacity>
@@ -576,7 +580,9 @@ function CreateCircleScreen({ navigation, currentUser }) {
   const [circleName, setCircleName] = useState('');
   const [logo, setLogo] = useState({ kind: 'preset', value: 'community' });
   const [logoBusy, setLogoBusy] = useState(false);
-  const [selectedType, setSelectedType] = useState('COOPERATIVA');
+  const [selectedType, setSelectedType] = useState('CUSTOM');
+  const [customRoles, setCustomRoles] = useState(INITIAL_ROLES);
+  const [customBoards, setCustomBoards] = useState(INITIAL_BOARDS);
   const [users, setUsers] = useState([]);
   const [pendingMembers, setPendingMembers] = useState([]);
   const [selectedUser, setSelectedUser] = useState(null);
@@ -584,7 +590,8 @@ function CreateCircleScreen({ navigation, currentUser }) {
   const [addVisible, setAddVisible] = useState(false);
   const [loading, setLoading] = useState(false);
 
-  const roles = Object.entries(CIRCLE_CONFIG[selectedType].roles);
+  const roles = selectedType === 'CUSTOM' ? customRoles.filter(role => role.id !== 'admin').map(role => [role.id, { label: role.name }]) : Object.entries(CIRCLE_CONFIG[selectedType].roles);
+  const displayRole = role => selectedType === 'CUSTOM' ? customRoles.find(entry => entry.id === role)?.name || role : roleLabel(selectedType, role);
 
   useEffect(() => {
     fetch(`${API_BASE_URL}/api/users/${currentUser._id}`).then(r => r.json()).then(data => setUsers(Array.isArray(data) ? data : [])).catch(() => {});
@@ -602,9 +609,10 @@ function CreateCircleScreen({ navigation, currentUser }) {
   const handleCreate = async () => {
     if (loading || logoBusy) return;
     if (!circleName.trim()) return Alert.alert('Errore', 'Inserisci un nome per la Cerchia');
+    if (selectedType === 'CUSTOM' && customRoles.length < 2) return Alert.alert('Ruoli', 'Aggiungi almeno un ruolo oltre all’amministratore.');
     setLoading(true);
     try {
-      const res = await fetch(`${API_BASE_URL}/api/circles`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name: circleName.trim(), logo, type: selectedType, adminId: currentUser._id, initialMembers: pendingMembers.map(m => ({ userId: m.userId, role: m.role })) }) });
+      const res = await fetch(`${API_BASE_URL}/api/circles`, { method: 'POST', headers: { 'Content-Type': 'application/json', ...(selectedType === 'CUSTOM' ? { Authorization: `Bearer ${currentUser.sessionToken}` } : {}) }, body: JSON.stringify({ name: circleName.trim(), logo, type: selectedType, adminId: currentUser._id, initialMembers: pendingMembers.map(m => ({ userId: m.userId, role: m.role })), ...(selectedType === 'CUSTOM' ? { roles: customRoles, boards: customBoards } : {}) }) });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Impossibile creare la Cerchia');
       Alert.alert('StoneApp', pendingMembers.length ? 'Cerchia creata e inviti inviati.' : 'Cerchia creata.');
@@ -618,10 +626,11 @@ function CreateCircleScreen({ navigation, currentUser }) {
       <TextInput style={styles.authInput} placeholder="Nome Cerchia" value={circleName} onChangeText={setCircleName} />
       <LogoPicker value={logo} onChange={setLogo} busy={logoBusy || loading} onBusyChange={setLogoBusy} />
       <Text style={styles.subSectionTitle}>Tipologia:</Text>
-      <View style={styles.typeSelectorRow}>{Object.entries(CIRCLE_CONFIG).map(([type, cfg]) => <TouchableOpacity key={type} style={[styles.typeChip, selectedType === type && styles.typeChipActive]} onPress={() => { setSelectedType(type); setPendingMembers([]); }}><Text style={[styles.typeChipText, selectedType === type && styles.typeChipTextActive]}>{cfg.label}</Text></TouchableOpacity>)}</View>
+      <View style={styles.typeSelectorRow}>{[['CUSTOM', { label: 'Personalizzata' }], ...Object.entries(CIRCLE_CONFIG)].map(([type, cfg]) => <TouchableOpacity key={type} style={[styles.typeChip, selectedType === type && styles.typeChipActive]} onPress={() => { setSelectedType(type); setPendingMembers([]); }}><Text style={[styles.typeChipText, selectedType === type && styles.typeChipTextActive]}>{cfg.label}</Text></TouchableOpacity>)}</View>
+      {selectedType === 'CUSTOM' && <CustomCircleEditor roles={customRoles} boards={customBoards} onRolesChange={setCustomRoles} onBoardsChange={setCustomBoards} lockedRoles={pendingMembers.map(member => member.role)} />}
       <TouchableOpacity style={styles.createCircleBtn} onPress={openAdd}><Text style={styles.createCircleBtnText}>+ Inserisci utente</Text></TouchableOpacity>
       <Text style={styles.subSectionTitle}>Utenti da invitare:</Text>
-    </View>} ListEmptyComponent={<Text style={styles.emptyText}>Nessun utente inserito.</Text>} renderItem={({ item }) => <View style={styles.memberRow}><View style={{ flex: 1 }}><Text style={styles.chatName}>{item.username}</Text><Text style={styles.lastMessage}>{roleLabel(selectedType, item.role)}</Text></View><TouchableOpacity onPress={() => removeMember(item.userId)}><Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Rimuovi</Text></TouchableOpacity></View>} ListFooterComponent={<TouchableOpacity style={styles.confirmBtn} onPress={handleCreate} disabled={loading || logoBusy}><Text style={{ color: '#FFF', fontWeight: 'bold' }}>{loading ? 'Creazione...' : 'CREA CERCHIA'}</Text></TouchableOpacity>} />
+    </View>} ListEmptyComponent={<Text style={styles.emptyText}>Nessun utente inserito.</Text>} renderItem={({ item }) => <View style={styles.memberRow}><View style={{ flex: 1 }}><Text style={styles.chatName}>{item.username}</Text><Text style={styles.lastMessage}>{displayRole(item.role)}</Text></View><TouchableOpacity onPress={() => removeMember(item.userId)}><Text style={{ color: '#EF4444', fontWeight: 'bold' }}>Rimuovi</Text></TouchableOpacity></View>} ListFooterComponent={<TouchableOpacity style={styles.confirmBtn} onPress={handleCreate} disabled={loading || logoBusy}><Text style={{ color: '#FFF', fontWeight: 'bold' }}>{loading ? 'Creazione...' : 'CREA CERCHIA'}</Text></TouchableOpacity>} />
 
     <Modal visible={addVisible} transparent animationType="slide"><View style={styles.modalOverlay}><View style={styles.modalContent}><Text style={styles.modalTitle}>Inserisci utente</Text><FlatList data={users.filter(u => !pendingMembers.some(m => m.userId === u._id))} keyExtractor={u => u._id} style={{ maxHeight: 260 }} renderItem={({ item }) => <TouchableOpacity style={[styles.selectUserRow, selectedUser?._id === item._id && styles.selectUserActive]} onPress={() => setSelectedUser(item)}><Text style={styles.chatName}>{item.username}</Text></TouchableOpacity>} /><Text style={styles.subSectionTitle}>Ruolo:</Text><View style={styles.typeSelectorRow}>{roles.map(([key, cfg]) => <TouchableOpacity key={key} style={[styles.typeChip, selectedRole === key && styles.typeChipActive]} onPress={() => setSelectedRole(key)}><Text style={[styles.typeChipText, selectedRole === key && styles.typeChipTextActive]}>{cfg.label}</Text></TouchableOpacity>)}</View><View style={styles.modalActions}><TouchableOpacity style={styles.cancelBtn} onPress={() => setAddVisible(false)}><Text style={{ fontWeight: 'bold', color: '#64748B' }}>Annulla</Text></TouchableOpacity><TouchableOpacity style={styles.confirmBtn} onPress={addMember}><Text style={{ fontWeight: 'bold', color: '#FFF' }}>Inserisci</Text></TouchableOpacity></View></View></View></Modal>
   </SafeAreaView>;
@@ -743,9 +752,10 @@ function CircleDetailScreen({  route,
 
   const acceptedMembers = (circle.members || []).filter(m => m.status === 'ACCEPTED' && m.userId);
   const myMember = acceptedMembers.find(m => String(m.userId?._id || m.userId) === String(currentUser._id));
-  const canManageMembers = String(circle.adminId?._id || circle.adminId) === String(currentUser._id) || myMember?.role === CIRCLE_OWNER_ROLE[circle.type];
+  const canManageMembers = String(circle.adminId?._id || circle.adminId) === String(currentUser._id) || (circle.type !== 'CUSTOM' && myMember?.role === CIRCLE_OWNER_ROLE[circle.type]);
   const config = CIRCLE_CONFIG[circle.type] || CIRCLE_CONFIG.COOPERATIVA;
   const myRoleConfig = config.roles[myMember?.role];
+  const circleRoleLabel = role => circle.type === 'CUSTOM' ? circle.roles?.find(entry => entry.id === role)?.name || role : roleLabel(circle.type, role);
 
   useEffect(() => {
     const onPresence = ({ userId, online }) => {
@@ -814,7 +824,7 @@ function CircleDetailScreen({  route,
       );
 
       setSelectedUser(null);
-      setSelectedRole(Object.keys(config.roles)[0] || null);
+      setSelectedRole(circle.type === 'CUSTOM' ? circle.roles?.find(entry => entry.id !== 'admin')?.id || null : Object.keys(config.roles)[0] || null);
       setAddVisible(true);
 
     } catch {
@@ -840,7 +850,8 @@ function CircleDetailScreen({  route,
         {
           method: 'POST',
           headers: {
-            'Content-Type': 'application/json'
+            'Content-Type': 'application/json',
+            ...(circle.type === 'CUSTOM' ? { Authorization: `Bearer ${currentUser.sessionToken}` } : {})
           },
           body: JSON.stringify({
             inviterId: currentUser._id,
@@ -979,10 +990,11 @@ function CircleDetailScreen({  route,
                 styles.tabTextActive
             ]}
           >
-            Selezioni
+            Bacheche
           </Text>
 
         </TouchableOpacity>
+        {circle.type === 'CUSTOM' && <TouchableOpacity style={[styles.tabButton, tab === 'documents' && styles.tabButtonActive]} onPress={() => setTab('documents')}><Text style={[styles.tabText, tab === 'documents' && styles.tabTextActive]}>Documenti</Text></TouchableOpacity>}
 
       </View>
 
@@ -1095,10 +1107,7 @@ function CircleDetailScreen({  route,
 
                   <Text style={styles.lastMessage}>
 
-                    {roleLabel(
-                      circle.type,
-                      item.role
-                    )}
+                    {circleRoleLabel(item.role)}
 
                     {onlineUsers[id]
                       ? ' • Online'
@@ -1114,6 +1123,13 @@ function CircleDetailScreen({  route,
           }}
         />
 
+      ) : circle.type === 'CUSTOM' && tab === 'documents' ? (
+        <CustomDocuments circle={circle} currentUser={currentUser} apiBaseUrl={API_BASE_URL} socket={socket} />
+      ) : circle.type === 'CUSTOM' ? (
+        <View style={{ flex: 1 }}>
+          {canManageMembers && <TouchableOpacity style={styles.addUserBtn} onPress={openAdd}><Text style={styles.createCircleBtnText}>+ Aggiungi utente</Text></TouchableOpacity>}
+          <CustomBoards circle={circle} currentUser={currentUser} apiBaseUrl={API_BASE_URL} onRefresh={refreshCircle} socket={socket} />
+        </View>
       ) : (
 
         /* ============================= */
@@ -1145,10 +1161,7 @@ function CircleDetailScreen({  route,
                     style={styles.circleRoleText}
                   >
                     Ruolo:{' '}
-                    {roleLabel(
-                      circle.type,
-                      myMember.role
-                    )}
+                    {circleRoleLabel(myMember.role)}
                   </Text>
 
                 </View>
@@ -1301,9 +1314,7 @@ function CircleDetailScreen({  route,
               style={styles.typeSelectorRow}
             >
 
-              {Object.entries(
-                config.roles
-              ).map(([key, cfg]) => (
+              {(circle.type === 'CUSTOM' ? (circle.roles || []).filter(role => role.id !== 'admin').map(role => [role.id, { label: role.name }]) : Object.entries(config.roles)).map(([key, cfg]) => (
 
                 <TouchableOpacity
                   key={key}
@@ -1871,15 +1882,21 @@ export default function App() {
     }
 
     const user = JSON.parse(savedUser);
+    if (!user.sessionToken) {
+      await AsyncStorage.removeItem('user');
+      setCurrentUser(null);
+      return;
+    }
 
     const response = await fetch(`${API_BASE_URL}/api/user/${user._id}`);
 
     if (response.ok) {
       const userFromServer = await response.json();
 
-      await AsyncStorage.setItem('user', JSON.stringify(userFromServer));
+      const refreshed = { ...userFromServer, sessionToken: user.sessionToken };
+      await AsyncStorage.setItem('user', JSON.stringify(refreshed));
 
-      setCurrentUser(userFromServer);
+      setCurrentUser(refreshed);
     } else {
       console.log('Utente locale non presente nel database.');
 
@@ -1954,8 +1971,9 @@ const handleLogout = async () => {
                     unreadCircles={unreadCircles}
                     onLogout={handleLogout}
                     onUserUpdated={async (u) => {
-                      await AsyncStorage.setItem('user', JSON.stringify(u));
-                      setCurrentUser(u);
+                      const updated = { ...u, sessionToken: currentUser.sessionToken };
+                      await AsyncStorage.setItem('user', JSON.stringify(updated));
+                      setCurrentUser(updated);
                     }}
                   />
                   )}
@@ -2004,8 +2022,9 @@ const handleLogout = async () => {
     onDeleteAccount={handleDeleteAccount}
     onLogout={handleLogout}
     onUserUpdated={async (u) => {
-      await AsyncStorage.setItem('user', JSON.stringify(u));
-      setCurrentUser(u);
+      const updated = { ...u, sessionToken: currentUser.sessionToken };
+      await AsyncStorage.setItem('user', JSON.stringify(updated));
+      setCurrentUser(updated);
     }}
   />
 )}

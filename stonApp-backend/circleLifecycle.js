@@ -1,4 +1,4 @@
-function createCircleLifecycle({ mongoose, User, Circle, Message, Announcement, DocumentModel, WorkShift, bcrypt, io }) {
+function createCircleLifecycle({ mongoose, User, Circle, Message, Announcement, DocumentModel, WorkShift, BoardPost, bcrypt, io }) {
   async function authenticate(req) {
     const { userId, password } = req.body || {};
     if (!/^[a-f0-9]{24}$/.test(String(userId)) || typeof password !== 'string' || !password) return null;
@@ -23,6 +23,7 @@ function createCircleLifecycle({ mongoose, User, Circle, Message, Announcement, 
           // Le chat private non vengono cancellate: appartengono alle due persone.
           await Message.deleteMany({ roomId: `circle_${circleId}` }, { session });
           await Announcement.deleteMany({ circleId }, { session });
+          if (BoardPost) await BoardPost.deleteMany({ circleId }, { session });
           await DocumentModel.deleteMany({ circleId }, { session });
           await WorkShift.deleteMany({ circleId }, { session });
           await Circle.deleteOne({ _id: circleId, adminId: userId }, { session });

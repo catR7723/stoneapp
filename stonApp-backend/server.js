@@ -1,6 +1,7 @@
 const express = require('express');
 const http = require('http');
 const mongoose = require('mongoose');
+const crypto = require('crypto');
 const cors = require('cors');
 const bcrypt = require('bcryptjs');
 const { Server } = require('socket.io');
@@ -9,6 +10,8 @@ const { registerPrivateMessaging } = require('./privateMessages');
 const { createCircleLifecycle } = require('./circleLifecycle');
 const { createCircleLogoUpdate } = require('./circleLogoUpdate');
 const { normalizeProfileAvatar } = require('./profileAvatar');
+const { validateBoardConfig, membership, boardAccess, canSendDocument } = require('./customBoards');
+const { normalizeDocument } = require('./customDocuments');
 
 const app = express();
 const server = http.createServer(app);
@@ -20,6 +23,7 @@ const io = new Server(server, {
 });
 
 app.use(cors());
+app.use('/api/circles/:circleId/documents', express.json({ limit: '3mb' }));
 app.use(express.json({ limit: '256kb' }));
 
 // Presenza online: più socket possono appartenere allo stesso utente.
@@ -50,6 +54,23 @@ const userSchema = new mongoose.Schema({
 });
 
 const User = mongoose.model('User', userSchema);
+const sessionSchema = new mongoose.Schema({
+  userId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  tokenHash: { type: String, required: true, unique: true },
+  expiresAt: { type: Date, required: true, expires: 0 },
+});
+const Session = mongoose.model('Session', sessionSchema);
+const createSession = async userId => {
+  const token = crypto.randomBytes(32).toString('hex');
+  await Session.create({ userId, tokenHash: crypto.createHash('sha256').update(token).digest('hex'), expiresAt: new Date(Date.now() + 90 * 24 * 60 * 60 * 1000) });
+  return token;
+};
+const authenticatedUser = async req => {
+  const token = /^Bearer ([a-f0-9]{64})$/.exec(req.headers.authorization || '')?.[1];
+  if (typeof token !== 'string' || !/^[a-f0-9]{64}$/.test(token)) return null;
+  const session = await Session.findOne({ tokenHash: crypto.createHash('sha256').update(token).digest('hex'), expiresAt: { $gt: new Date() } });
+  return session ? String(session.userId) : null;
+};
 
 // 2. Schema Messaggi Chat
 const messageSchema = new mongoose.Schema({
@@ -67,6 +88,13 @@ const Message = mongoose.model('Message', messageSchema);
 
 // 3. Schema Cerchia (Circle)
 // 3. Schema Cerchia (Circle)
+const LEGACY_ROLES = new Set([
+  'AMMINISTRATORE', 'UTENTE', 'SOSTENITORE', 'SOCIO_LAVORATORE', 'VOLONTARIO', 'DIPENDENTE',
+  'QUADRO', 'IMPIEGATO', 'OPERAIO', 'SERVIZI', 'AMMINISTRAZIONE', 'RESPONSABILE', 'PARTECIPANTE',
+  'DIRIGENTE', 'ATLETA', 'GENITORE', 'CLIENTE', 'RESPONSABILE_VENDITE', 'VENDITORE',
+  'STUDENTE', 'IMPIEGATO_SCOLASTICO', 'BIDELLO', 'VOLONTARIO_SCOLASTICO',
+  'PROFESSORE', 'PROFESSORESSA', 'MAESTRO', 'MAESTRA', 'DIRIGENZA'
+]);
 const circleSchema = new mongoose.Schema({
   logo: { kind: { type: String, enum: ['preset', 'image'] }, value: String },
   name: {
@@ -82,7 +110,8 @@ const circleSchema = new mongoose.Schema({
       'GRUPPO',
       'SQUADRA',
       'NEGOZIO',
-      'SCUOLA'
+      'SCUOLA',
+      'CUSTOM'
     ],
     default: 'COOPERATIVA'
   },
@@ -92,6 +121,8 @@ const circleSchema = new mongoose.Schema({
     ref: 'User',
     required: true
   },
+  roles: [{ id: String, name: String, canAttachDocuments: Boolean }],
+  boards: [{ id: String, name: String, permissions: mongoose.Schema.Types.Mixed }],
 
   members: [{
     userId: {
@@ -102,49 +133,14 @@ const circleSchema = new mongoose.Schema({
 
     role: {
       type: String,
-      enum: [
-        // Ruoli generali
-        'AMMINISTRATORE',
-        'UTENTE',
-        'SOSTENITORE',
-
-        // COOPERATIVA
-        'SOCIO_LAVORATORE',
-        'VOLONTARIO',
-        'DIPENDENTE',
-
-        // IMPRESA
-        'QUADRO',
-        'IMPIEGATO',
-        'OPERAIO',
-        'SERVIZI',
-
-        // GRUPPO
-        'RESPONSABILE',
-        'PARTECIPANTE',
-
-        // SQUADRA
-        'DIRIGENTE',
-        'ATLETA',
-        'GENITORE',
-
-        // NEGOZIO
-        'CLIENTE',
-        'RESPONSABILE_VENDITE',
-        'VENDITORE',
-
-        // SCUOLA
-        'GENITORE',
-        'STUDENTE',
-        'IMPIEGATO_SCOLASTICO',
-        'BIDELLO',
-        'VOLONTARIO_SCOLASTICO',
-        'PROFESSORE',
-        'PROFESSORESSA',
-        'MAESTRO',
-        'MAESTRA',
-        'DIRIGENZA'
-      ],
+      maxLength: 60,
+      validate: {
+        validator(value) {
+          const circle = this.ownerDocument();
+          return circle?.type === 'CUSTOM' ? circle.roles.some(role => role.id === value) : LEGACY_ROLES.has(value);
+        },
+        message: 'Ruolo non valido per questa cerchia.'
+      },
       default: 'UTENTE'
     },
 
@@ -162,6 +158,9 @@ const circleSchema = new mongoose.Schema({
 });
 
 const Circle = mongoose.model('Circle', circleSchema);
+const invitationRoleName = (circle, role) => circle.type === 'CUSTOM'
+  ? circle.roles.find(item => item.id === role)?.name || 'Ruolo della cerchia'
+  : String(role).toLowerCase().replace(/_/g, ' ').replace(/^./, letter => letter.toUpperCase());
 
 // 4. Schema Comunicazioni & Bacheca
 const announcementSchema = new mongoose.Schema({
@@ -178,13 +177,26 @@ const announcementSchema = new mongoose.Schema({
 });
 
 const Announcement = mongoose.model('Announcement', announcementSchema);
+const boardPostSchema = new mongoose.Schema({
+  circleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle', required: true },
+  boardId: { type: String, required: true },
+  authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  authorName: { type: String, required: true },
+  text: { type: String, required: true, maxlength: 4000 },
+  createdAt: { type: Date, default: Date.now }
+});
+const BoardPost = mongoose.model('BoardPost', boardPostSchema);
 
 // 5. Schema Documenti & Cedolini Riservati
 const documentSchema = new mongoose.Schema({
   circleId: { type: mongoose.Schema.Types.ObjectId, ref: 'Circle', required: true },
   targetUserId: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+  authorId: { type: mongoose.Schema.Types.ObjectId, ref: 'User' },
   title: { type: String, required: true },
-  fileUrl: { type: String, required: true },
+  fileUrl: String,
+  fileName: String,
+  mimeType: String,
+  fileData: Buffer,
   docType: { type: String, enum: ['CEDOLINO', 'DOCUMENTO', 'CONTRATTO'], default: 'DOCUMENTO' },
   createdAt: { type: Date, default: Date.now }
 });
@@ -224,7 +236,7 @@ app.post('/api/auth/register', async (req, res) => {
     });
 
     await newUser.save();
-    res.status(201).json({ _id: newUser._id, username: newUser.username, email: newUser.email, avatar: newUser.avatar });
+    res.status(201).json({ _id: newUser._id, username: newUser.username, email: newUser.email, avatar: newUser.avatar, sessionToken: await createSession(newUser._id) });
   } catch (err) {
     res.status(500).json({ error: 'Errore durante la registrazione' });
   }
@@ -240,7 +252,7 @@ app.post('/api/auth/login', async (req, res) => {
     const isMatch = await bcrypt.compare(password, user.password);
     if (!isMatch) return res.status(400).json({ error: 'Password errata' });
 
-    res.json({ _id: user._id, username: user.username, email: user.email, avatar: user.avatar });
+    res.json({ _id: user._id, username: user.username, email: user.email, avatar: user.avatar, sessionToken: await createSession(user._id) });
   } catch (err) {
     res.status(500).json({ error: 'Errore durante il login' });
   }
@@ -343,6 +355,12 @@ app.delete('/api/users/:userId', async (req, res) => {
 app.post('/api/circles', async (req, res) => {
   try {
     const { name, type, adminId, initialMembers } = req.body;
+    let customConfig;
+    if (type === 'CUSTOM') {
+      if (await authenticatedUser(req) !== String(adminId)) return res.status(401).json({ error: 'Accedi di nuovo per creare una cerchia personalizzata.' });
+      try { customConfig = validateBoardConfig(req.body.roles, req.body.boards); }
+      catch (error) { return res.status(400).json({ error: error.message }); }
+    }
     let logo;
     try { logo = normalizeLogo(req.body.logo, type); }
     catch (error) { return res.status(400).json({ error: error.message }); }
@@ -354,12 +372,13 @@ app.post('/api/circles', async (req, res) => {
         error: 'Amministratore non trovato'
       });
     }
+    if (type === 'CUSTOM' && (!Array.isArray(initialMembers) || initialMembers.some(member => !customConfig.roles.some(role => role.id === member.role)))) return res.status(400).json({ error: 'Assegna a ogni invitato un ruolo della cerchia.' });
 
     // L'amministratore entra subito nella cerchia
     const members = [
       {
         userId: adminId,
-        role: 'AMMINISTRATORE',
+        role: type === 'CUSTOM' ? 'admin' : 'AMMINISTRATORE',
         status: 'ACCEPTED'
       }
     ];
@@ -384,6 +403,7 @@ app.post('/api/circles', async (req, res) => {
       logo,
       name,
       type: type || 'COOPERATIVA',
+      ...(customConfig || {}),
       adminId,
       members
     });
@@ -409,6 +429,7 @@ app.post('/api/circles', async (req, res) => {
           circleName: newCircle.name,
           inviterName: admin.username,
           role: member.role || 'UTENTE',
+          roleName: invitationRoleName(newCircle, member.role || 'UTENTE'),
           userId: String(member.userId)
         });
 
@@ -429,10 +450,56 @@ app.post('/api/circles', async (req, res) => {
   }
 });
 
-const circleLifecycle = createCircleLifecycle({ mongoose, User, Circle, Message, Announcement, DocumentModel, WorkShift, bcrypt, io });
+const circleLifecycle = createCircleLifecycle({ mongoose, User, Circle, Message, Announcement, DocumentModel, WorkShift, BoardPost, bcrypt, io });
 app.put('/api/circles/:circleId/logo', createCircleLogoUpdate({ User, Circle, bcrypt, io }));
 app.delete('/api/circles/:circleId', circleLifecycle.remove);
 app.post('/api/circles/:circleId/leave', circleLifecycle.leave);
+
+// Ruoli e bacheche delle sole cerchie personalizzate.
+app.put('/api/circles/:circleId/config', async (req, res) => {
+  try {
+    const { userId, roles, boards } = req.body || {};
+    if (await authenticatedUser(req) !== String(userId)) return res.status(401).json({ error: 'Accesso richiesto.' });
+    const circle = await Circle.findById(req.params.circleId);
+    if (!circle || circle.type !== 'CUSTOM') return res.status(404).json({ error: 'Cerchia personalizzata non trovata.' });
+    if (String(circle.adminId) !== String(userId) || !membership(circle, userId)) return res.status(403).json({ error: 'Solo il proprietario può modificare ruoli e bacheche.' });
+    let config;
+    try { config = validateBoardConfig(roles, boards); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+    if (circle.members.some(member => !config.roles.some(role => role.id === member.role))) return res.status(400).json({ error: 'Non eliminare un ruolo finché ha membri o inviti.' });
+    const removedBoards = circle.boards.filter(board => !config.boards.some(item => item.id === board.id)).map(board => board.id);
+    circle.roles = config.roles;
+    circle.boards = config.boards;
+    await circle.save();
+    if (removedBoards.length) await BoardPost.deleteMany({ circleId: circle._id, boardId: { $in: removedBoards } });
+    io.to(circle.members.filter(member => member.status === 'ACCEPTED').map(member => `user_${member.userId}`)).emit('circle_members_changed', { circleId: String(circle._id) });
+    res.json({ roles: circle.roles, boards: circle.boards });
+  } catch { res.status(500).json({ error: 'Impossibile aggiornare le bacheche.' }); }
+});
+
+app.get('/api/circles/:circleId/boards/:boardId/posts', async (req, res) => {
+  try {
+    if (await authenticatedUser(req) !== String(req.query.userId)) return res.status(401).json({ error: 'Accesso richiesto.' });
+    const circle = await Circle.findById(req.params.circleId);
+    if (boardAccess(circle, req.params.boardId, req.query.userId) === 'none') return res.status(403).json({ error: 'Accesso alla bacheca negato.' });
+    res.json(await BoardPost.find({ circleId: circle._id, boardId: req.params.boardId }).sort({ createdAt: -1 }).limit(100));
+  } catch { res.status(500).json({ error: 'Impossibile caricare la bacheca.' }); }
+});
+app.post('/api/circles/:circleId/boards/:boardId/posts', async (req, res) => {
+  try {
+    const circle = await Circle.findById(req.params.circleId);
+    const { authorId, text } = req.body || {};
+    if (await authenticatedUser(req) !== String(authorId)) return res.status(401).json({ error: 'Accesso richiesto.' });
+    if (boardAccess(circle, req.params.boardId, authorId) !== 'write') return res.status(403).json({ error: 'Non puoi scrivere su questa bacheca.' });
+    if (typeof text !== 'string' || !text.trim() || text.length > 4000) return res.status(400).json({ error: 'Scrivi un testo (massimo 4000 caratteri).' });
+    const author = await User.findById(authorId).select('username');
+    if (!author) return res.status(404).json({ error: 'Utente non trovato.' });
+    const post = await BoardPost.create({ circleId: circle._id, boardId: req.params.boardId, authorId, authorName: author.username, text: text.trim() });
+    const permitted = circle.members.filter(member => member.status === 'ACCEPTED' && boardAccess(circle, req.params.boardId, member.userId) !== 'none').map(member => `user_${member.userId}`);
+    io.to(permitted).emit('board_posts_changed', { circleId: String(circle._id), boardId: req.params.boardId });
+    res.status(201).json(post);
+  } catch { res.status(500).json({ error: 'Impossibile pubblicare sulla bacheca.' }); }
+});
 
 // Recupera Cerchie dell'Utente
 app.get('/api/circles/user/:userId', async (req, res) => {
@@ -463,9 +530,11 @@ app.post('/api/circles/:circleId/invite', async (req, res) => {
     const { inviterId, userId, role } = req.body;
     const circle = await Circle.findById(circleId);
     if (!circle) return res.status(404).json({ error: 'Cerchia non trovata' });
+    if (circle.type === 'CUSTOM' && await authenticatedUser(req) !== String(inviterId)) return res.status(401).json({ error: 'Accesso richiesto.' });
     const inviter = circle.members.find(m => String(m.userId) === String(inviterId) && m.status === 'ACCEPTED');
     if (!inviter) return res.status(403).json({ error: 'Non sei membro della cerchia' });
-    if (inviter.role !== 'AMMINISTRATORE') return res.status(403).json({ error: 'Solo l’amministratore può invitare utenti' });
+    if (circle.type === 'CUSTOM' ? String(circle.adminId) !== String(inviterId) : inviter.role !== 'AMMINISTRATORE') return res.status(403).json({ error: 'Solo l’amministratore può invitare utenti' });
+    if (circle.type === 'CUSTOM' && !circle.roles.some(entry => entry.id === role)) return res.status(400).json({ error: 'Scegli un ruolo della cerchia.' });
     const user = await User.findById(userId).select('username avatar email');
     if (!user) return res.status(404).json({ error: 'Utente non trovato' });
     if (String(userId) === String(inviterId)) return res.status(400).json({ error: 'Non puoi invitare te stesso' });
@@ -474,7 +543,7 @@ app.post('/api/circles/:circleId/invite', async (req, res) => {
     if (existing) { existing.role = role || 'UTENTE'; existing.status = 'PENDING'; }
     else circle.members.push({ userId, role: role || 'UTENTE', status: 'PENDING' });
     await circle.save();
-    const payload = { circleId: String(circle._id), circleName: circle.name, inviterName: (await User.findById(inviterId).select('username')).username, role: role || 'UTENTE' };
+    const payload = { circleId: String(circle._id), circleName: circle.name, inviterName: (await User.findById(inviterId).select('username')).username, role: role || 'UTENTE', roleName: invitationRoleName(circle, role || 'UTENTE') };
     io.emit('circle_invitation', { ...payload, userId: String(userId) });
     res.status(201).json({ message: 'Invito inviato', invitation: payload });
   } catch (error) { console.error(error); res.status(500).json({ error: 'Errore invio invito' }); }
@@ -484,7 +553,7 @@ app.post('/api/circles/:circleId/invite', async (req, res) => {
 app.get('/api/circle-invitations/:userId', async (req, res) => {
   try {
     const circles = await Circle.find({ members: { $elemMatch: { userId: req.params.userId, status: 'PENDING' } } }).populate('adminId', 'username');
-    const invitations = circles.map(c => { const m = c.members.find(x => String(x.userId) === String(req.params.userId) && x.status === 'PENDING'); return { circleId: String(c._id), circleName: c.name, inviterName: c.adminId?.username || 'Un amministratore', role: m?.role || 'UTENTE' }; });
+    const invitations = circles.map(c => { const m = c.members.find(x => String(x.userId) === String(req.params.userId) && x.status === 'PENDING'); return { circleId: String(c._id), circleName: c.name, inviterName: c.adminId?.username || 'Un amministratore', role: m?.role || 'UTENTE', roleName: invitationRoleName(c, m?.role || 'UTENTE') }; });
     res.json(invitations);
   } catch (error) { res.status(500).json({ error: 'Errore recupero inviti' }); }
 });
@@ -540,14 +609,62 @@ app.get('/api/circles/:circleId/announcements/:role', async (req, res) => {
 });
 
 // Recupera Documenti Personali
+app.post('/api/circles/:circleId/documents', async (req, res) => {
+  try {
+    const { authorId, targetUserId, title } = req.body || {};
+    if (await authenticatedUser(req) !== String(authorId)) return res.status(401).json({ error: 'Accesso richiesto.' });
+    const circle = await Circle.findById(req.params.circleId);
+    if (!canSendDocument(circle, authorId, targetUserId)) return res.status(403).json({ error: 'Non puoi inviare un documento a questo membro.' });
+    if (typeof title !== 'string' || !title.trim() || title.length > 120) return res.status(400).json({ error: 'Inserisci un titolo valido.' });
+    let file;
+    try { file = normalizeDocument(req.body); }
+    catch (error) { return res.status(400).json({ error: error.message }); }
+    const document = await DocumentModel.create({ circleId: circle._id, authorId, targetUserId, title: title.trim(), ...file });
+    io.to(`user_${targetUserId}`).emit('circle_document_received', { circleId: String(circle._id), documentId: String(document._id) });
+    res.status(201).json({ _id: document._id, title: document.title, fileName: document.fileName, createdAt: document.createdAt });
+  } catch { res.status(500).json({ error: 'Impossibile inviare il documento.' }); }
+});
 app.get('/api/circles/:circleId/documents/:userId', async (req, res) => {
   try {
     const { circleId, userId } = req.params;
-    const docs = await DocumentModel.find({ circleId, targetUserId: userId });
+    const circle = await Circle.findById(circleId);
+    if (circle?.type === 'CUSTOM' && await authenticatedUser(req) !== String(userId)) return res.status(401).json({ error: 'Accesso richiesto.' });
+    if (circle?.type === 'CUSTOM' && !membership(circle, userId)) return res.status(403).json({ error: 'Non sei membro della cerchia.' });
+    const docs = await DocumentModel.find({ circleId, targetUserId: userId }).select('-fileData');
     res.json(docs);
   } catch (error) {
     res.status(500).json({ error: 'Errore recupero documenti' });
   }
+});
+const documentTickets = new Map();
+app.get('/api/circles/:circleId/documents/:documentId/access', async (req, res) => {
+  try {
+    const userId = await authenticatedUser(req);
+    const circle = await Circle.findById(req.params.circleId);
+    if (!userId || circle?.type !== 'CUSTOM' || !membership(circle, userId)) return res.status(403).json({ error: 'Accesso negato.' });
+    const document = await DocumentModel.findOne({ _id: req.params.documentId, circleId: circle._id, targetUserId: userId }).select('_id');
+    if (!document) return res.status(404).json({ error: 'Documento non trovato.' });
+    const ticket = crypto.randomBytes(24).toString('hex');
+    documentTickets.set(ticket, { circleId: String(circle._id), documentId: String(document._id), userId, expiresAt: Date.now() + 60_000 });
+    setTimeout(() => documentTickets.delete(ticket), 60_000).unref();
+    res.json({ url: `/api/circles/${circle._id}/documents/${document._id}/file?ticket=${ticket}` });
+  } catch { res.status(500).json({ error: 'Impossibile aprire il documento.' }); }
+});
+app.get('/api/circles/:circleId/documents/:documentId/file', async (req, res) => {
+  try {
+    const { circleId, documentId } = req.params;
+    const ticket = documentTickets.get(req.query.ticket);
+    if (!ticket || ticket.expiresAt < Date.now() || ticket.circleId !== circleId || ticket.documentId !== documentId) return res.status(403).end();
+    const { userId } = ticket;
+    const circle = await Circle.findById(circleId);
+    if (!circle || circle.type !== 'CUSTOM' || !membership(circle, userId)) return res.status(403).end();
+    const document = await DocumentModel.findOne({ _id: documentId, circleId, targetUserId: userId });
+    if (!document?.fileData) return res.status(404).end();
+    res.set('Cache-Control', 'private, no-store');
+    res.set('X-Content-Type-Options', 'nosniff');
+    res.set('Content-Disposition', `attachment; filename="${document.fileName.replace(/[^a-zA-Z0-9._-]/g, '_')}"`);
+    res.type(document.mimeType).send(document.fileData);
+  } catch { res.status(500).end(); }
 });
 
 // -------------------------------------------------------------
