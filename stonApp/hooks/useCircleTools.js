@@ -10,10 +10,13 @@ export const useCircleToolsContext = () => useContext(CircleToolsContext);
 export function useCircleTools(userId) {
   const groupPlayer = useAudioPlayer(require('../assets/alert-circle.wav'));
   const privatePlayer = useAudioPlayer(require('../assets/alert-private.wav'));
+  const boardPlayer = useAudioPlayer(require('../assets/alert-board.wav'));
+  const documentPlayer = useAudioPlayer(require('../assets/alert-document.wav'));
   const [store, setStore] = useState({ userId: null, values: {} });
-  const [foreground, setForeground] = useState(AppState.currentState === 'active');
-  const current = useRef({ userId, store, foreground, groupPlayer, privatePlayer });
-  current.current = { userId, store, foreground, groupPlayer, privatePlayer };
+  // Su iPhone currentState può essere null al primo avvio: in quel caso l'app è ancora visibile.
+  const [foreground, setForeground] = useState(AppState.currentState !== 'background');
+  const current = useRef({ userId, store, foreground, groupPlayer, privatePlayer, boardPlayer, documentPlayer });
+  current.current = { userId, store, foreground, groupPlayer, privatePlayer, boardPlayer, documentPlayer };
   const writeQueue = useRef(Promise.resolve());
   const playbackQueue = useRef(Promise.resolve());
   const lastSound = useRef({});
@@ -22,16 +25,16 @@ export function useCircleTools(userId) {
   const play = useCallback((kind, valid = () => true, preview = false) => {
     const owner = current.current.userId;
     const run = async () => {
-      if (!owner || current.current.userId !== owner || !current.current.foreground || !valid()) return;
+      if (!owner || current.current.userId !== owner || (!preview && !current.current.foreground) || !valid()) return;
       if (!preview && Date.now() - (lastSound.current[kind] || 0) < 700) return;
       await audioReady.current;
-      const player = kind === 'group' ? current.current.groupPlayer : current.current.privatePlayer;
+      const player = { group: current.current.groupPlayer, private: current.current.privatePlayer, board: current.current.boardPlayer, document: current.current.documentPlayer }[kind];
       if (!player.isLoaded) throw new Error('Audio in caricamento: riprova tra un momento.');
       await player.seekTo(0);
-      if (current.current.userId !== owner || !current.current.foreground || !valid()) return;
+      if (current.current.userId !== owner || (!preview && !current.current.foreground) || !valid()) return;
       player.play();
       lastSound.current[kind] = Date.now();
-      // I due segnali restano distinguibili anche se arrivano insieme.
+      // Ogni tipo mantiene il suo segnale, anche quando gli eventi arrivano insieme.
       await new Promise(resolve => setTimeout(resolve, 850));
     };
     const job = playbackQueue.current.catch(() => {}).then(run);
@@ -51,7 +54,7 @@ export function useCircleTools(userId) {
     let cancelled = false;
     engine.reset();
     lastSound.current = {};
-    groupPlayer.pause(); privatePlayer.pause();
+    groupPlayer.pause(); privatePlayer.pause(); boardPlayer.pause(); documentPlayer.pause();
     setStore({ userId: null, values: {} });
     if (userId) (async () => {
       const prefix = `${settingsKey(userId)}:`;
@@ -60,7 +63,7 @@ export function useCircleTools(userId) {
       const values = {};
       for (const [key, raw] of rows) values[key.slice(prefix.length)] = normalizePreferences(raw ? JSON.parse(raw) : null);
       if (!cancelled) setStore({ userId, values });
-    })().catch(() => { if (!cancelled) { setStore({ userId, values: {} }); Alert.alert('Impostazioni', 'Non riesco a leggere le preferenze della cerchia. Gli avvisi sono disattivati.'); } });
+    })().catch(() => { if (!cancelled) { setStore({ userId, values: {} }); Alert.alert('Impostazioni', 'Non riesco a leggere le preferenze della cerchia. Verranno usate quelle predefinite.'); } });
     return () => { cancelled = true; engine.reset(); };
   }, [userId, engine]);
   useEffect(() => {
@@ -69,11 +72,11 @@ export function useCircleTools(userId) {
       const active = state === 'active';
       current.current.foreground = active;
       engine.setActive(active);
-      if (!active) { groupPlayer.pause(); privatePlayer.pause(); }
+      if (!active) { groupPlayer.pause(); privatePlayer.pause(); boardPlayer.pause(); documentPlayer.pause(); }
       setForeground(active);
     });
     return () => subscription.remove();
-  }, [engine, groupPlayer, privatePlayer, foreground]);
+  }, [engine, groupPlayer, privatePlayer, boardPlayer, documentPlayer, foreground]);
   useEffect(() => {
     if (store.userId === userId && userId) engine.configure();
   }, [store.userId, userId, engine]);

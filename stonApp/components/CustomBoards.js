@@ -1,8 +1,10 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { Alert, FlatList, ScrollView, Text, TextInput, TouchableOpacity, View } from 'react-native';
 import CustomCircleEditor from './CustomCircleEditor';
+import RoleCorner from './RoleCorner';
+import { boardRoleId } from '../utils/roleColors';
 
-export default function CustomBoards({ circle, currentUser, apiBaseUrl, onRefresh, socket }) {
+export default function CustomBoards({ circle, currentUser, apiBaseUrl, onRefresh, socket, isFocused, unreadBoards, onSetViewingBoard, onViewed }) {
   const [activeBoard, setActiveBoard] = useState(null);
   const [posts, setPosts] = useState([]);
   const [message, setMessage] = useState('');
@@ -22,9 +24,14 @@ export default function CustomBoards({ circle, currentUser, apiBaseUrl, onRefres
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Bacheca non disponibile.');
       setPosts(data);
+      if (isFocused) onViewed(circle._id, board.id);
     } catch (error) { Alert.alert('Bacheca', error.message); }
-  }, [board?.id, circle._id, currentUser._id, apiBaseUrl]);
+  }, [board?.id, circle._id, currentUser._id, apiBaseUrl, isFocused, onViewed]);
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    onSetViewingBoard(isFocused ? circle._id : null, isFocused ? board?.id : null);
+    return () => onSetViewingBoard(null, null);
+  }, [isFocused, circle._id, board?.id, onSetViewingBoard]);
   useEffect(() => {
     const changed = event => { if (String(event.circleId) === String(circle._id) && event.boardId === board?.id) load(); };
     socket.on('board_posts_changed', changed);
@@ -61,7 +68,13 @@ export default function CustomBoards({ circle, currentUser, apiBaseUrl, onRefres
   return <FlatList data={board ? posts : []} keyExtractor={item => item._id} contentContainerStyle={{ padding: 15 }}
     ListHeaderComponent={<View>
       <Text style={{ fontSize: 17, fontWeight: '700', marginBottom: 8 }}>Bacheche disponibili</Text>
-      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{allowed.map(item => <TouchableOpacity key={item.id} onPress={() => setActiveBoard(item.id)} style={{ padding: 10, margin: 3, borderRadius: 9, backgroundColor: activeBoard === item.id ? '#C7D2FE' : '#E2E8F0' }}><Text>{item.name}</Text></TouchableOpacity>)}</View>
+      <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{allowed.map(item => {
+        const roleId = boardRoleId(circle.roles, item.id);
+        return <TouchableOpacity key={item.id} onPress={() => { onSetViewingBoard(circle._id, item.id); setActiveBoard(item.id); }} style={{ padding: 10, paddingRight: roleId ? 18 : 10, margin: 3, borderRadius: 9, overflow: 'hidden', backgroundColor: unreadBoards?.[item.id] ? '#FEF3C7' : activeBoard === item.id ? '#C7D2FE' : '#E2E8F0' }}>
+          <RoleCorner roles={circle.roles} roleId={roleId} size={14} />
+          <Text>{item.name}</Text>
+        </TouchableOpacity>;
+      })}</View>
       {!allowed.length && <Text>Non hai bacheche disponibili per il tuo ruolo.</Text>}
       {owner && <TouchableOpacity onPress={openEditor} style={{ paddingVertical: 15 }}><Text style={{ color: '#4F46E5' }}>⚙️ Gestisci ruoli e bacheche</Text></TouchableOpacity>}
       {board && <View style={{ marginVertical: 15 }}><Text style={{ fontSize: 17, fontWeight: '700' }}>{board.name}</Text>
@@ -69,6 +82,13 @@ export default function CustomBoards({ circle, currentUser, apiBaseUrl, onRefres
       </View>}
     </View>}
     ListEmptyComponent={board && <Text>Nessun messaggio in questa bacheca.</Text>}
-    renderItem={({ item }) => <View style={{ padding: 12, marginVertical: 5, borderRadius: 10, backgroundColor: '#FFFFFF' }}><Text style={{ fontWeight: '700' }}>{item.authorName}</Text><Text>{item.text}</Text></View>}
+    renderItem={({ item }) => {
+      const memberRole = circle.members.find(member => String(member.userId?._id || member.userId) === String(item.authorId))?.role;
+      const roleName = circle.roles.find(role => role.id === memberRole)?.name;
+      return <View style={{ padding: 12, paddingRight: 21, marginVertical: 5, borderRadius: 10, backgroundColor: '#FFFFFF', overflow: 'hidden' }}>
+        <RoleCorner roles={circle.roles} roleId={memberRole} />
+        <Text style={{ fontWeight: '700' }}>{item.authorName}{roleName ? ` · ${roleName}` : ''}</Text><Text>{item.text}</Text>
+      </View>;
+    }}
   />;
 }

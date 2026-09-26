@@ -18,10 +18,10 @@ test('Home una volta: un segnale per messaggio diretto, senza timer',()=>{
   const h=fixture();h.prefs[HOME_ALERT_SCOPE].private.mode='once';h.receive(null);h.receive(null,'a_b','2');h.receive(null,'a_b','2');assert.deepEqual(h.sounds,['private','private']);assert.equal(h.timers.size,0);
 });
 test('L’alert Home non attiva i privati di una cerchia silenziata',()=>{
-  const h=fixture();h.prefs[HOME_ALERT_SCOPE].private.mode='once';h.receive({_id:'circle'});assert.equal(h.sounds.length,0);
+  const h=fixture();h.prefs.circle.private.mode='off';h.receive({_id:'circle'});assert.equal(h.sounds.length,0);
 });
 test('Disattivare Home non disattiva i privati abilitati nella cerchia',()=>{
-  const h=fixture();h.prefs.circle.private.mode='once';h.receive(null);h.receive({_id:'circle'},'a_b','2');assert.equal(h.sounds.length,1);
+  const h=fixture();h.prefs[HOME_ALERT_SCOPE].private.mode='off';h.receive(null);h.receive({_id:'circle'},'a_b','2');assert.equal(h.sounds.length,1);
 });
 test('Il promemoria diretto rispetta l’intervallo e si ferma alla lettura',()=>{
   const h=fixture();h.prefs[HOME_ALERT_SCOPE].private={mode:'repeat',intervalSeconds:30};h.receive(null);assert.equal(h.sounds.length,1);const [key,timer]=[...h.timers][0];assert.equal(timer.ms,30000);h.timers.delete(key);timer.fn();assert.equal(h.sounds.length,2);h.engine.clearPrivateRoom('a_b');assert.equal(h.timers.size,0);

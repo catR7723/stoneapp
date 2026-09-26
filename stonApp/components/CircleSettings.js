@@ -88,7 +88,7 @@ export function CircleSettingsModal({ visible, onClose, circle, currentUser, api
     finally { setBusy(false); }
   };
   const save = async () => {
-    for (const kind of ['group', 'private']) {
+    for (const kind of ['group', 'private', 'board', 'document']) {
       const interval = Number(draft[kind].intervalSeconds);
       if (draft[kind].mode === 'repeat' && (!Number.isInteger(interval) || interval < 10 || interval > 86400)) return Alert.alert('Intervallo', 'Inserisci un numero intero tra 10 e 86400 secondi.');
     }
@@ -140,6 +140,8 @@ export function CircleSettingsModal({ visible, onClose, circle, currentUser, api
           <Text style={s.heading}>Attiva alert</Text>
           <AlertOptions title="Chat della cerchia" value={draft.group} onChange={group => setDraft(prev => ({ ...prev, group }))} onPreview={() => tools.preview('group')} />
           <AlertOptions title="Messaggi privati dalla cerchia" value={draft.private} onChange={value => setDraft(prev => ({ ...prev, private: value }))} onPreview={() => tools.preview('private')} />
+          {circle.type === 'CUSTOM' && <AlertOptions title="Nuovi messaggi nelle bacheche" value={draft.board} onChange={value => setDraft(prev => ({ ...prev, board: value }))} onPreview={() => tools.preview('board')} />}
+          {circle.type === 'CUSTOM' && <AlertOptions title="Nuovi documenti ricevuti" value={draft.document} onChange={value => setDraft(prev => ({ ...prev, document: value }))} onPreview={() => tools.preview('document')} />}
           <Text style={s.help}>Gli avvisi suonano mentre StonApp è aperta. Leggere la conversazione ferma le ripetizioni.</Text>
           <View style={s.section}>
             <Text style={s.heading}>Cambia sfondo</Text>
@@ -190,10 +192,10 @@ export function CircleSettingsButton({ circleId, currentUser, apiBaseUrl }) {
 }
 export function CircleUnreadNotice() {
   const tools = useCircleToolsContext();
-  const count = Object.keys(tools.unreadCircles || {}).length;
+  const count = new Set([...Object.keys(tools.unreadCircles || {}), ...Object.keys(tools.unreadBoards || {}), ...Object.keys(tools.unreadDocuments || {})]).size;
   if (!count) return null;
   return <TouchableOpacity accessibilityRole="button" onPress={tools.openCircles} style={{ backgroundColor: '#DCFCE7', padding: 10, flexDirection: 'row', alignItems: 'center', gap: 8 }}>
     <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E' }} />
-    <Text style={{ color: '#166534', fontWeight: '600' }}>Cerchie: {count} {count === 1 ? 'chat da leggere' : 'chat da leggere'}</Text>
+    <Text style={{ color: '#166534', fontWeight: '600' }}>Cerchie: {count} con novità</Text>
   </TouchableOpacity>;
 }

@@ -24,7 +24,7 @@ function harness() {
   return { engine, prefs, sounds, queued, timers, tick, receive };
 }
 test('Disattivato mantiene zero suoni e zero timer', () => {
-  const h=harness();h.receive();h.tick(300000);assert.equal(h.sounds.length,0);assert.equal(h.timers.size,0);
+  const h=harness();h.prefs.A.group.mode='off';h.receive();h.tick(300000);assert.equal(h.sounds.length,0);assert.equal(h.timers.size,0);
 });
 test('Una volta suona per ogni messaggio nuovo senza ripetizioni o doppioni', () => {
   const h=harness();h.prefs.A.group.mode='once';h.receive('group','A','1');h.receive('group','A','1');h.receive('group','A','2');h.tick(300000);assert.deepEqual(h.sounds,['group','group']);assert.equal(h.timers.size,0);
@@ -45,7 +45,7 @@ test('Cambiare intervallo ricalcola la prossima ripetizione dal salvataggio', ()
   const h=harness();h.prefs.A.group.mode='repeat';h.receive();h.tick(5000);h.prefs.A.group.intervalSeconds=10;h.engine.configure('A');h.tick(9999);assert.equal(h.sounds.length,1);h.tick(1);assert.equal(h.sounds.length,2);
 });
 test('Una cerchia silenziata non disattiva una cerchia diversa', () => {
-  const h=harness();h.prefs.B.group.mode='once';h.receive('group','A','1');h.receive('group','B','2');assert.deepEqual(h.sounds,['group']);
+  const h=harness();h.prefs.A.group.mode='off';h.receive('group','A','1');h.receive('group','B','2');assert.deepEqual(h.sounds,['group']);
 });
 test('Lettura, uscita o eliminazione non lasciano timer orfani', () => {
   const h=harness();h.prefs.A.group.mode='repeat';h.prefs.A.private.mode='repeat';h.receive();h.receive('private');h.engine.removeCircle('A');h.tick(300000);assert.equal(h.sounds.length,2);assert.equal(h.timers.size,0);assert.ok(h.queued.every(valid=>!valid()));
@@ -59,6 +59,22 @@ test('Logout azzera timer, memoria dei messaggi e riproduzioni accodate', () => 
 test('Le preferenze hanno chiavi diverse per account e recuperano valori sicuri', () => {
   assert.notEqual(settingsKey('gigio1'),settingsKey('gigi4'));
   const p=normalizePreferences({group:{mode:'repeat',intervalSeconds:0},private:{mode:'invalid'},background:{kind:'image',value:'file:///temporary/photo.jpg'}});
-  assert.equal(p.group.intervalSeconds,60);assert.equal(p.private.mode,'off');assert.equal(p.background.kind,'color');
+  assert.equal(p.group.intervalSeconds,60);assert.equal(p.private.mode,'once');assert.equal(p.board.mode,'once');assert.equal(p.document.mode,'once');assert.equal(p.background.kind,'color');
   assert.deepEqual(normalizePreferences(JSON.parse(JSON.stringify(p))),p);
+});
+test('I quattro tipi partono su una volta e rispettano i silenziamenti salvati', () => {
+  const h=harness();h.receive('group','A','g');h.receive('private','A','p');
+  h.engine.receive({kind:'board',circleId:'A',boardId:'b',messageId:'b1'});
+  h.engine.receive({kind:'document',circleId:'A',messageId:'d1'});
+  assert.deepEqual(h.sounds,['group','private','board','document']);assert.equal(h.timers.size,0);
+  assert.equal(normalizePreferences({board:{mode:'off'}}).board.mode,'off');
+});
+test('Leggere una bacheca ferma solo il suo promemoria, non documenti o altre bacheche', () => {
+  const h=harness();h.prefs.A.board.mode='repeat';h.prefs.A.document.mode='repeat';
+  h.engine.receive({kind:'board',circleId:'A',boardId:'b1',messageId:'p1'});
+  h.engine.receive({kind:'board',circleId:'A',boardId:'b2',messageId:'p2'});
+  h.engine.receive({kind:'document',circleId:'A',messageId:'d1'});
+  assert.equal(h.timers.size,3);h.engine.clearBoard('A','b1');assert.equal(h.timers.size,2);
+  h.engine.clearDocuments('A');assert.equal(h.timers.size,1);
+  h.tick(60000);assert.deepEqual(h.sounds.slice(3),['board']);
 });

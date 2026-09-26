@@ -21,6 +21,12 @@ import { CircleSettingsModal, CircleSettingsButton, CircleSurface, CircleUnreadN
 import CustomCircleEditor, { INITIAL_ROLES, INITIAL_BOARDS } from './components/CustomCircleEditor';
 import CustomBoards from './components/CustomBoards';
 import CustomDocuments from './components/CustomDocuments';
+import RoleCorner from './components/RoleCorner';
+function AlertCircleIcon({ document = false }) {
+  return <View style={{ width: 44, height: 44, borderRadius: 22, backgroundColor: document ? '#FBCFE8' : '#FEF3C7', alignItems: 'center', justifyContent: 'center', marginLeft: 6 }}>
+    <Image source={require('./assets/alert-cat.png')} accessibilityLabel={document ? 'Nuovo documento' : 'Nuovo messaggio in bacheca'} style={{ width: 33, height: 33, borderRadius: 17 }} resizeMode="contain" />
+  </View>;
+}
 //import { Audio } from 'expo-av';//
 
 
@@ -28,10 +34,10 @@ import CustomDocuments from './components/CustomDocuments';
 const expoHost = (Constants.expoConfig?.hostUri || Constants.expoGoConfig?.debuggerHost || '').split(':')[0];
 
 //HOME//
-//const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (/^(?:\d{1,3}\.){3}\d{1,3}$|^localhost$/.test(expoHost) ? `http://${expoHost}:3001` : 'http://192.168.0.150:3001');//
+const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (/^(?:\d{1,3}\.){3}\d{1,3}$|^localhost$/.test(expoHost) ? `http://${expoHost}:3001` : 'http://192.168.0.150:3001');
 
 //QUARTIER//
-const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (/^(?:\d{1,3}\.){3}\d{1,3}$|^localhost$/.test(expoHost) ? `http://${expoHost}:3001` : 'http://192.168.1.9:3001');
+//const API_BASE_URL = process.env.EXPO_PUBLIC_API_URL || (/^(?:\d{1,3}\.){3}\d{1,3}$|^localhost$/.test(expoHost) ? `http://${expoHost}:3001` : 'http://192.168.1.9:3001');//
 
 
 
@@ -266,6 +272,8 @@ function HomeScreen({
   currentUser,
   unreadPrivateRooms,
   unreadCircles,
+  unreadBoards,
+  unreadDocuments,
   onDeleteAccount,
   onLogout,
   onUserUpdated
@@ -450,17 +458,9 @@ if (Array.isArray(dataCircles)) {
       Cerchie ({circles.length})
     </Text>
 
-    {Object.keys(unreadCircles || {}).length > 0 && (
-      <View
-        style={{
-          width: 8,
-          height: 8,
-          borderRadius: 4,
-          backgroundColor: '#22C55E',
-          marginLeft: 6
-        }}
-      />
-    )}
+    {Object.keys(unreadCircles || {}).length > 0 && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#22C55E', marginLeft: 6 }} />}
+    {Object.keys(unreadBoards || {}).length > 0 && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#FACC15', marginLeft: 6 }} />}
+    {Object.keys(unreadDocuments || {}).length > 0 && <View style={{ width: 8, height: 8, borderRadius: 4, backgroundColor: '#3B82F6', marginLeft: 6 }} />}
   </View>
 </TouchableOpacity>
       </View>
@@ -530,8 +530,16 @@ renderItem={({ item }) => {
                 <TouchableOpacity style={styles.circleCard} onPress={() => navigation.navigate('CircleDetail', { circle: item })}>
                   <View style={styles.circleIcon}><CircleLogo logo={tools.circleLogos?.[String(item._id)] || item.logo} type={item.type} label={item.name} /></View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.chatName}>{item.name}</Text>
+                  <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+                    <Text style={styles.chatName}>{item.name}</Text>
+                    {!!Object.keys(unreadBoards?.[String(item._id)] || {}).length && <AlertCircleIcon />}
+                    {!!unreadDocuments?.[String(item._id)] && <AlertCircleIcon document />}
+                  </View>
                   <Text style={styles.circleTypeBadges}>{item.type}</Text>
+                  <View style={{ flexDirection: 'row', gap: 6 }}>
+                    {!!Object.keys(unreadBoards?.[String(item._id)] || {}).length && <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#FACC15' }} />}
+                    {!!unreadDocuments?.[String(item._id)] && <View style={{ width: 10, height: 10, borderRadius: 5, backgroundColor: '#3B82F6' }} />}
+                  </View>
                 </View>
                   {unreadCircles?.[String(item._id)] && (
                     <Image
@@ -731,6 +739,12 @@ function CircleDetailScreen({  route,
   navigation,
   currentUser,
   unreadCircles,
+  unreadBoards,
+  unreadDocuments,
+  onSetViewingBoard,
+  onSetViewingDocuments,
+  onBoardViewed,
+  onDocumentsViewed,
   onDeleteAccount,
   onLogout,
   onUserUpdated  }) {
@@ -743,6 +757,11 @@ function CircleDetailScreen({  route,
   unreadCircles
 );
   const [tab, setTab] = useState('chat');
+  const isFocused = useIsFocused();
+  useEffect(() => {
+    onSetViewingDocuments(isFocused && tab === 'documents' ? String(circle._id) : null);
+    return () => onSetViewingDocuments(null);
+  }, [isFocused, tab, circle._id, onSetViewingDocuments]);
   const [onlineUsers, setOnlineUsers] = useState({});
   const [addVisible, setAddVisible] = useState(false);
   const [users, setUsers] = useState([]);
@@ -909,9 +928,11 @@ function CircleDetailScreen({  route,
 
         <View style={{ flex: 1 }}>
 
-          <Text style={styles.circleTitle}>
-            {circle.name}
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+            <Text style={styles.circleTitle}>{circle.name}</Text>
+            {!!Object.keys(unreadBoards?.[String(circle._id)] || {}).length && <AlertCircleIcon />}
+            {!!unreadDocuments?.[String(circle._id)] && <AlertCircleIcon document />}
+          </View>
 
           <View
             style={{
@@ -920,9 +941,10 @@ function CircleDetailScreen({  route,
             }}
           >
 
-            <Text style={styles.circleUserName}>
-              {currentUser.username}
-            </Text>
+            {circle.type === 'CUSTOM' && myMember ? <View style={{ position: 'relative', paddingRight: 15, paddingLeft: 5, paddingVertical: 2, borderRadius: 6, overflow: 'hidden', backgroundColor: '#F1F5F9' }}>
+              <RoleCorner roles={circle.roles} roleId={myMember.role} size={12} />
+              <Text style={styles.circleUserName}>{currentUser.username} · {circleRoleLabel(myMember.role)}</Text>
+            </View> : <Text style={styles.circleUserName}>{currentUser.username}</Text>}
 
             <View style={styles.onlineDot} />
 
@@ -983,18 +1005,13 @@ function CircleDetailScreen({  route,
           onPress={() => setTab('selections')}
         >
 
-          <Text
-            style={[
-              styles.tabText,
-              tab === 'selections' &&
-                styles.tabTextActive
-            ]}
-          >
-            Bacheche
-          </Text>
+          <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+            <Text style={[styles.tabText, tab === 'selections' && styles.tabTextActive]}>Bacheche</Text>
+            {!!Object.keys(unreadBoards?.[String(circle._id)] || {}).length && <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#22C55E', marginLeft: 5 }} />}
+          </View>
 
         </TouchableOpacity>
-        {circle.type === 'CUSTOM' && <TouchableOpacity style={[styles.tabButton, tab === 'documents' && styles.tabButtonActive]} onPress={() => setTab('documents')}><Text style={[styles.tabText, tab === 'documents' && styles.tabTextActive]}>Documenti</Text></TouchableOpacity>}
+        {circle.type === 'CUSTOM' && <TouchableOpacity style={[styles.tabButton, tab === 'documents' && styles.tabButtonActive]} onPress={() => setTab('documents')}><View style={{ flexDirection: 'row', alignItems: 'center' }}><Text style={[styles.tabText, tab === 'documents' && styles.tabTextActive]}>Documenti</Text>{!!unreadDocuments?.[String(circle._id)] && <View style={{ width: 9, height: 9, borderRadius: 5, backgroundColor: '#22C55E', marginLeft: 5 }} />}</View></TouchableOpacity>}
 
       </View>
 
@@ -1124,11 +1141,11 @@ function CircleDetailScreen({  route,
         />
 
       ) : circle.type === 'CUSTOM' && tab === 'documents' ? (
-        <CustomDocuments circle={circle} currentUser={currentUser} apiBaseUrl={API_BASE_URL} socket={socket} />
+        <CustomDocuments circle={circle} currentUser={currentUser} apiBaseUrl={API_BASE_URL} socket={socket} isFocused={isFocused} onViewed={onDocumentsViewed} />
       ) : circle.type === 'CUSTOM' ? (
         <View style={{ flex: 1 }}>
           {canManageMembers && <TouchableOpacity style={styles.addUserBtn} onPress={openAdd}><Text style={styles.createCircleBtnText}>+ Aggiungi utente</Text></TouchableOpacity>}
-          <CustomBoards circle={circle} currentUser={currentUser} apiBaseUrl={API_BASE_URL} onRefresh={refreshCircle} socket={socket} />
+          <CustomBoards circle={circle} currentUser={currentUser} apiBaseUrl={API_BASE_URL} onRefresh={refreshCircle} socket={socket} isFocused={isFocused} unreadBoards={unreadBoards?.[String(circle._id)] || {}} onSetViewingBoard={onSetViewingBoard} onViewed={onBoardViewed} />
         </View>
       ) : (
 
@@ -1772,6 +1789,8 @@ export default function App() {
   const navigationRef = useNavigationContainerRef();
   const [unreadPrivateRooms, setUnreadPrivateRooms] = useState({});
   const [unreadCircles, setUnreadCircles] = useState({});
+  const [unreadBoards, setUnreadBoards] = useState({});
+  const [unreadDocuments, setUnreadDocuments] = useState({});
   const [circleLogos, setCircleLogos] = useState({});
   const syncCircleLogos = useCallback(circles => {
     setCircleLogos(prev => {
@@ -1793,7 +1812,34 @@ export default function App() {
 
   const activePrivateRoom = useRef(null);
   const activeCircle = useRef(null);
+  const activeBoard = useRef(null);
+  const activeDocuments = useRef(null);
   const engine = circleTools.engine;
+  const setViewingBoard = useCallback((circleId, boardId) => {
+    activeBoard.current = circleId && boardId ? `${circleId}:${boardId}` : null;
+  }, []);
+  const setViewingDocuments = useCallback(circleId => { activeDocuments.current = circleId; }, []);
+  const boardViewed = useCallback((circleId, boardId) => {
+    if (activeBoard.current !== `${circleId}:${boardId}`) return;
+    engine.clearBoard(circleId, boardId);
+    setUnreadBoards(prev => {
+      const boards = prev[String(circleId)];
+      if (!boards?.[String(boardId)]) return prev;
+      const rest = { ...boards }; delete rest[String(boardId)];
+      const next = { ...prev };
+      if (Object.keys(rest).length) next[String(circleId)] = rest;
+      else delete next[String(circleId)];
+      return next;
+    });
+  }, [engine]);
+  const documentsViewed = useCallback(circleId => {
+    if (activeDocuments.current !== String(circleId)) return;
+    engine.clearDocuments(circleId);
+    setUnreadDocuments(prev => {
+      if (!prev[String(circleId)]) return prev;
+      const next = { ...prev }; delete next[String(circleId)]; return next;
+    });
+  }, [engine]);
 
   const clearUnreadPrivateRoom = useCallback(roomId => {
     engine.clearPrivateRoom(roomId);
@@ -1820,6 +1866,10 @@ export default function App() {
   const handleCircleRemoved = useCallback(circleId => {
     engine.removeCircle(circleId);
     clearUnreadCircle(circleId);
+    setUnreadBoards(prev => { const next = { ...prev }; delete next[String(circleId)]; return next; });
+    setUnreadDocuments(prev => { const next = { ...prev }; delete next[String(circleId)]; return next; });
+    if (activeBoard.current?.startsWith(`${circleId}:`)) activeBoard.current = null;
+    if (activeDocuments.current === String(circleId)) activeDocuments.current = null;
     setUnreadPrivateRooms(prev => {
       const next = {};
       for (const [roomId, origins] of Object.entries(prev)) {
@@ -1835,8 +1885,8 @@ export default function App() {
   }, [engine, clearUnreadCircle, navigationRef]);
 
   useEffect(() => {
-    setUnreadPrivateRooms({}); setUnreadCircles({}); setCircleLogos({});
-    activePrivateRoom.current = null; activeCircle.current = null;
+    setUnreadPrivateRooms({}); setUnreadCircles({}); setUnreadBoards({}); setUnreadDocuments({}); setCircleLogos({});
+    activePrivateRoom.current = null; activeCircle.current = null; activeBoard.current = null; activeDocuments.current = null;
     engine.reset();
   }, [currentUser?._id, engine]);
 
@@ -1855,10 +1905,27 @@ export default function App() {
       setUnreadCircles(prev => ({ ...prev, [circleId]: true }));
       engine.receive({ kind: 'group', circleId, messageId: message._id });
     };
+    const onBoardPost = event => {
+      const circleId = String(event?.circleId || '');
+      const boardId = String(event?.boardId || '');
+      if (!circleId || !boardId || String(event.authorId) === String(currentUser._id)) return;
+      if (toolsRef.current.isForeground() && activeBoard.current === `${circleId}:${boardId}`) return;
+      setUnreadBoards(prev => ({ ...prev, [circleId]: { ...prev[circleId], [boardId]: true } }));
+      engine.receive({ kind: 'board', circleId, boardId, messageId: event.postId });
+    };
+    const onDocument = event => {
+      const circleId = String(event?.circleId || '');
+      if (!circleId || String(event.authorId) === String(currentUser._id)) return;
+      if (toolsRef.current.isForeground() && activeDocuments.current === circleId) return;
+      setUnreadDocuments(prev => ({ ...prev, [circleId]: true }));
+      engine.receive({ kind: 'document', circleId, messageId: event.documentId });
+    };
     const onRemoved = event => handleCircleRemoved(String(event.circleId));
     const announceOnline = () => socket.emit('set_online', { userId: currentUser._id });
     socket.on('receive_message', onPrivate);
     socket.on('circle_message', onGroup);
+    socket.on('board_posts_changed', onBoardPost);
+    socket.on('circle_document_received', onDocument);
     socket.on('circle_removed', onRemoved);
     socket.on('circle_logo_updated', handleLogoUpdated);
     socket.on('connect', announceOnline);
@@ -1866,6 +1933,8 @@ export default function App() {
     return () => {
       socket.off('receive_message', onPrivate);
       socket.off('circle_message', onGroup);
+      socket.off('board_posts_changed', onBoardPost);
+      socket.off('circle_document_received', onDocument);
       socket.off('circle_removed', onRemoved);
       socket.off('circle_logo_updated', handleLogoUpdated);
       socket.off('connect', announceOnline);
@@ -1955,7 +2024,7 @@ const handleLogout = async () => {
   }
 
   return (
-    <CircleToolsContext.Provider value={{ ...circleTools, circleLogos, syncCircleLogos, onLogoUpdated: handleLogoUpdated, unreadCircles, onRemoved: handleCircleRemoved, openCircles: () => navigationRef.navigate('Home', { openTab: 'circles' }) }}>
+    <CircleToolsContext.Provider value={{ ...circleTools, circleLogos, syncCircleLogos, onLogoUpdated: handleLogoUpdated, unreadCircles, unreadBoards, unreadDocuments, onRemoved: handleCircleRemoved, openCircles: () => navigationRef.navigate('Home', { openTab: 'circles' }) }}>
     <SafeAreaProvider>
       <NavigationContainer ref={navigationRef}>
         <Stack.Navigator screenOptions={{ headerStyle: { backgroundColor: '#0F172A' }, headerTintColor: '#FFFFFF' }}>
@@ -1969,6 +2038,8 @@ const handleLogout = async () => {
                     unreadPrivateRooms={unreadPrivateRooms}
                     onDeleteAccount={handleDeleteAccount}
                     unreadCircles={unreadCircles}
+                    unreadBoards={unreadBoards}
+                    unreadDocuments={unreadDocuments}
                     onLogout={handleLogout}
                     onUserUpdated={async (u) => {
                       const updated = { ...u, sessionToken: currentUser.sessionToken };
@@ -2019,6 +2090,12 @@ const handleLogout = async () => {
     {...props}
     currentUser={currentUser}
     unreadCircles={unreadCircles}
+    unreadBoards={unreadBoards}
+    unreadDocuments={unreadDocuments}
+    onSetViewingBoard={setViewingBoard}
+    onSetViewingDocuments={setViewingDocuments}
+    onBoardViewed={boardViewed}
+    onDocumentsViewed={documentsViewed}
     onDeleteAccount={handleDeleteAccount}
     onLogout={handleLogout}
     onUserUpdated={async (u) => {

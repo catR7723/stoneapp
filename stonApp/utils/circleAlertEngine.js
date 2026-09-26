@@ -19,18 +19,18 @@ function createCircleAlertEngine({ getSettings, play, schedule = setTimeout, can
       arm(entry);
     }, config.intervalSeconds * 1000);
   }
-  function receive({ circleId, kind, roomId, messageId }) {
-    if (!circleId || !['group', 'private'].includes(kind)) return;
+  function receive({ circleId, kind, roomId, boardId, messageId }) {
+    if (!circleId || !['group', 'private', 'board', 'document'].includes(kind) || (kind === 'board' && !boardId)) return;
     if (messageId) {
       const identity = `${kind}:${messageId}`;
       if (seen.has(identity)) return;
       seen.add(identity);
       if (seen.size > 2000) seen.delete(seen.values().next().value);
     }
-    const key = `${kind}:${circleId}:${kind === 'private' ? roomId : ''}`;
+    const key = `${kind}:${circleId}:${kind === 'private' ? roomId : kind === 'board' ? boardId : ''}`;
     let entry = pending.get(key);
     const fresh = !entry;
-    if (!entry) { entry = { key, circleId: String(circleId), kind, roomId, timer: null }; pending.set(key, entry); }
+    if (!entry) { entry = { key, circleId: String(circleId), kind, roomId, boardId, timer: null }; pending.set(key, entry); }
     const config = settings(entry);
     if (active && (config.mode === 'once' || (config.mode === 'repeat' && fresh))) sound(entry, config.mode);
     if (fresh) arm(entry);
@@ -42,6 +42,8 @@ function createCircleAlertEngine({ getSettings, play, schedule = setTimeout, can
     receive,
     clearPrivateRoom: roomId => removeWhere(entry => entry.kind === 'private' && entry.roomId === roomId),
     clearCircleChat: circleId => removeWhere(entry => entry.kind === 'group' && entry.circleId === String(circleId)),
+    clearBoard: (circleId, boardId) => removeWhere(entry => entry.kind === 'board' && entry.circleId === String(circleId) && entry.boardId === String(boardId)),
+    clearDocuments: circleId => removeWhere(entry => entry.kind === 'document' && entry.circleId === String(circleId)),
     removeCircle: circleId => removeWhere(entry => entry.circleId === String(circleId)),
     configure: circleId => { for (const entry of pending.values()) if (circleId == null || entry.circleId === String(circleId)) arm(entry); },
     setActive(value) { active = value; for (const entry of pending.values()) arm(entry); },

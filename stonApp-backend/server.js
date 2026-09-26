@@ -496,7 +496,7 @@ app.post('/api/circles/:circleId/boards/:boardId/posts', async (req, res) => {
     if (!author) return res.status(404).json({ error: 'Utente non trovato.' });
     const post = await BoardPost.create({ circleId: circle._id, boardId: req.params.boardId, authorId, authorName: author.username, text: text.trim() });
     const permitted = circle.members.filter(member => member.status === 'ACCEPTED' && boardAccess(circle, req.params.boardId, member.userId) !== 'none').map(member => `user_${member.userId}`);
-    io.to(permitted).emit('board_posts_changed', { circleId: String(circle._id), boardId: req.params.boardId });
+    io.to(permitted).emit('board_posts_changed', { circleId: String(circle._id), boardId: req.params.boardId, postId: String(post._id), authorId: String(authorId) });
     res.status(201).json(post);
   } catch { res.status(500).json({ error: 'Impossibile pubblicare sulla bacheca.' }); }
 });
@@ -620,7 +620,7 @@ app.post('/api/circles/:circleId/documents', async (req, res) => {
     try { file = normalizeDocument(req.body); }
     catch (error) { return res.status(400).json({ error: error.message }); }
     const document = await DocumentModel.create({ circleId: circle._id, authorId, targetUserId, title: title.trim(), ...file });
-    io.to(`user_${targetUserId}`).emit('circle_document_received', { circleId: String(circle._id), documentId: String(document._id) });
+    io.to(`user_${targetUserId}`).emit('circle_document_received', { circleId: String(circle._id), documentId: String(document._id), authorId: String(authorId) });
     res.status(201).json({ _id: document._id, title: document.title, fileName: document.fileName, createdAt: document.createdAt });
   } catch { res.status(500).json({ error: 'Impossibile inviare il documento.' }); }
 });

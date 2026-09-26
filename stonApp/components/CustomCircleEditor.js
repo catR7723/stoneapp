@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { Alert, Text, TextInput, TouchableOpacity, View } from 'react-native';
+import RoleCorner from './RoleCorner';
+import { boardRoleId } from '../utils/roleColors';
 
 export const INITIAL_ROLES = [{ id: 'admin', name: 'Amministratore', canAttachDocuments: true }];
 export const INITIAL_BOARDS = [{ id: 'admin_board', name: 'Amministrazione', permissions: { admin: 'write' } }];
@@ -40,7 +42,8 @@ export default function CustomCircleEditor({ roles, boards, onRolesChange, onBoa
   return <View style={{ paddingVertical: 12 }}>
     <Text style={{ fontSize: 18, fontWeight: '700', marginVertical: 8 }}>Ruoli della cerchia</Text>
     <Text style={{ color: '#64748B', marginBottom: 8 }}>Tu sei l’amministratore. Aggiungi i ruoli dei membri e scegli chi può inviare documenti personali.</Text>
-    {roles.map(role => <View key={role.id} style={{ padding: 9, marginBottom: 8, backgroundColor: '#F8FAFC', borderRadius: 10 }}>
+    {roles.map(role => <View key={role.id} style={{ padding: 9, marginBottom: 8, backgroundColor: '#F8FAFC', borderRadius: 10, overflow: 'hidden' }}>
+      <RoleCorner roles={roles} roleId={role.id} />
       <Text style={{ fontWeight: '700' }}>{role.name}</Text>
       {role.id !== 'admin' && <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>
         <Action label={role.canAttachDocuments ? '📎 Può inviare documenti' : '📎 Non invia documenti'} onPress={() => onRolesChange(roles.map(item => item.id === role.id ? { ...item, canAttachDocuments: !item.canAttachDocuments } : item))} />
@@ -51,14 +54,15 @@ export default function CustomCircleEditor({ roles, boards, onRolesChange, onBoa
     <Action label="+ Aggiungi ruolo e la sua bacheca" onPress={addRole} />
     <Text style={{ fontSize: 18, fontWeight: '700', marginTop: 18 }}>Bacheche</Text>
     <Text style={{ color: '#64748B', marginVertical: 8 }}>Una bacheca nasce per ogni ruolo. Puoi crearne altre e decidere chi le vede.</Text>
-    {boards.map(board => <View key={board.id} style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap' }}>
+    {boards.map(board => <View key={board.id} style={{ flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', position: 'relative', overflow: 'hidden', borderRadius: 8 }}>
+      <RoleCorner roles={roles} roleId={boardRoleId(roles, board.id)} />
       <TextInput value={board.name} onChangeText={name => onBoardsChange(boards.map(item => item.id === board.id ? { ...item, name } : item))} style={{ flexGrow: 1, minWidth: 150, borderBottomWidth: 1, borderColor: '#CBD5E1', padding: 8 }} />
       {boards.length > 1 && <Action label="Elimina" danger onPress={() => Alert.alert('Elimina bacheca', `Eliminare “${board.name}” e tutti i suoi messaggi?`, [{ text: 'Annulla', style: 'cancel' }, { text: 'Elimina', style: 'destructive', onPress: () => onBoardsChange(boards.filter(item => item.id !== board.id)) }])} />}
     </View>)}
     <TextInput placeholder="Nuova bacheca, per esempio Eventi" value={boardName} onChangeText={setBoardName} style={{ borderWidth: 1, borderColor: '#CBD5E1', borderRadius: 10, padding: 12, marginTop: 10 }} />
     <Action label="+ Aggiungi bacheca" onPress={addBoard} />
     <Text style={{ fontSize: 18, fontWeight: '700', marginTop: 18 }}>Chi può accedere?</Text>
-    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{roles.filter(role => role.id !== 'admin').map(role => <Action key={role.id} label={role.name} selected={selectedRole === role.id} onPress={() => setSelectedRole(role.id)} />)}</View>
+    <View style={{ flexDirection: 'row', flexWrap: 'wrap' }}>{roles.filter(role => role.id !== 'admin').map(role => <View key={role.id} style={{ position: 'relative', borderRadius: 9, overflow: 'hidden' }}><Action label={role.name} selected={selectedRole === role.id} onPress={() => setSelectedRole(role.id)} /><RoleCorner roles={roles} roleId={role.id} size={12} /></View>)}</View>
     {activeRole && <View>
       <Text style={{ fontWeight: '700', marginVertical: 10 }}>A quali bacheche può accedere {activeRole.name}?</Text>
       {boards.map(board => <View key={board.id} style={{ paddingVertical: 7, borderBottomWidth: 1, borderColor: '#E2E8F0' }}>
